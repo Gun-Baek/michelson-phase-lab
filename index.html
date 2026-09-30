@@ -1,0 +1,1768 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Michelson 위상 계측 시뮬레이터</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=STIX+Two+Text:ital,wght@0,400;0,500;1,400;1,500&display=swap">
+<style>
+/* Layout: instrument console — parameter controls | optics & fringes | calculated readout, graphs underneath */
+:root{
+  --bg:#edf0f3; --panel:#ffffff; --panel-2:#f5f7f9; --plot-bg:#fbfcfd;
+  --ink:#141920; --ink-2:#3e4854; --muted:#687281; --line:#d3d9e0; --grid:#e6eaef;
+  --laser:#c41e2a; --laser-soft:#fbe9ea; --on-laser:#ffffff;
+  --plot:#2a78d6; --plot-2:#eb6834;
+  --ok:#11784c; --ok-soft:#e2f3ea; --warn:#8a5a00; --warn-soft:#fbf1dc;
+  --screen:#07090c;
+  --f-ui:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --f-math:"STIX Two Text","Cambria Math","Times New Roman",serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d1014; --panel:#161a20; --panel-2:#1c2128; --plot-bg:#13171c;
+    --ink:#e5e9ee; --ink-2:#b3bcc8; --muted:#8792a1; --line:#2c333d; --grid:#222931;
+    --laser:#ff5c61; --laser-soft:#3a1b1e; --on-laser:#1a0506;
+    --plot:#3987e5; --plot-2:#d95926;
+    --ok:#46c28b; --ok-soft:#14301f; --warn:#e3a94a; --warn-soft:#33270f;
+    --screen:#030405;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d1014; --panel:#161a20; --panel-2:#1c2128; --plot-bg:#13171c;
+  --ink:#e5e9ee; --ink-2:#b3bcc8; --muted:#8792a1; --line:#2c333d; --grid:#222931;
+  --laser:#ff5c61; --laser-soft:#3a1b1e; --on-laser:#1a0506;
+  --plot:#3987e5; --plot-2:#d95926;
+  --ok:#46c28b; --ok-soft:#14301f; --warn:#e3a94a; --warn-soft:#33270f;
+  --screen:#030405;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.app{max-width:1500px;margin:0 auto;padding-inline:20px;padding-block:14px 48px}
+@media (max-width:600px){.app{padding-inline:16px}}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--plot);outline-offset:2px}
+
+/* header */
+.top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:12px 24px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.kicker{font:600 11px var(--f-mono);letter-spacing:.09em;text-transform:uppercase;color:var(--laser)}
+h1{margin:2px 0 0;font-size:21px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+.chain{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:12px;color:var(--ink-2)}
+.chain .node{border:1px solid var(--line);background:var(--panel);padding:2px 8px;border-radius:3px;white-space:nowrap}
+.chain .arr{color:var(--muted);font-family:var(--f-mono)}
+
+/* tabs */
+.tabs{display:flex;gap:2px;overflow-x:auto;margin-top:12px;border-bottom:1px solid var(--line);scrollbar-width:thin}
+.tab{appearance:none;border:1px solid transparent;border-bottom:none;background:none;padding:9px 14px;font-size:13.5px;font-weight:500;color:var(--muted);cursor:pointer;border-radius:5px 5px 0 0;white-space:nowrap;margin-bottom:-1px}
+.tab:hover{color:var(--ink)}
+.tab[aria-selected="true"]{background:var(--panel);border-color:var(--line);color:var(--ink)}
+.tab .no{font-family:var(--f-mono);color:var(--laser);margin-right:7px;font-weight:600}
+.subtabs{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.subtab{border:1px solid var(--line);background:var(--panel);padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:var(--ink-2)}
+.subtab[aria-selected="true"]{border-color:var(--ink);color:var(--ink);font-weight:600;box-shadow:inset 0 -2px 0 var(--laser)}
+.subtab .no{font-family:var(--f-mono);margin-right:6px;color:var(--laser)}
+
+/* work grid */
+.work{display:grid;grid-template-columns:minmax(250px,292px) minmax(0,1fr) minmax(280px,350px);gap:12px;align-items:start;margin-top:14px}
+@media (max-width:1200px){.work{grid-template-columns:minmax(250px,300px) minmax(0,1fr)}.work>.col-vals{grid-column:1/-1}.col-vals .panel-b{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start}}
+@media (max-width:800px){.work{grid-template-columns:minmax(0,1fr)}}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;min-width:0}
+.panel-h{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);min-height:40px}
+.panel-h h3{margin:0;font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2)}
+.panel-b{padding:12px;display:flex;flex-direction:column;gap:14px}
+.graphs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
+@media (max-width:800px){.graphs{grid-template-columns:minmax(0,1fr)}}
+
+/* controls */
+.ctl-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ctl label{font-size:13px}
+.ctl-num{display:flex;align-items:center;gap:4px;flex:none}
+.ctl-num input{width:88px;font:500 13px var(--f-mono);font-variant-numeric:tabular-nums;text-align:right;padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:var(--panel-2)}
+.unit{font:12px var(--f-mono);color:var(--muted);min-width:44px}
+input[type=range]{width:100%;accent-color:var(--laser);margin:6px 0 0;cursor:pointer}
+.ctl-note{font-size:11.5px;color:var(--muted);margin-top:2px}
+.ctl-group{display:flex;flex-direction:column;gap:6px}
+.ctl-group>.lbl{font-size:12px;color:var(--ink-2);font-weight:500}
+.btn{border:1px solid var(--line);background:var(--panel-2);padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12.5px;font-weight:500;white-space:nowrap}
+.btn:hover{border-color:var(--ink-2)}
+.btn.primary{background:var(--laser);border-color:var(--laser);color:var(--on-laser)}
+.btn.sm{padding:3px 8px;font-size:12px}
+.btnrow{display:flex;flex-wrap:wrap;gap:6px}
+.seg{display:flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;flex-wrap:wrap}
+.seg button{flex:1 1 auto;border:none;background:var(--panel-2);padding:5px 8px;font-size:12.5px;cursor:pointer;color:var(--ink-2);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:none}
+.seg button[aria-checked="true"]{background:var(--ink);color:var(--panel);font-weight:600}
+.swatch{display:inline-block;width:12px;height:12px;border-radius:2px;border:1px solid var(--line);vertical-align:-2px;margin-right:4px}
+
+/* values */
+.vals{margin:0;display:flex;flex-direction:column}
+.vrow{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:5px 0;border-bottom:1px dashed var(--grid)}
+.vrow:last-child{border-bottom:none}
+.vrow dt{font-size:12.5px;color:var(--ink-2)}
+.vrow dt small{display:block;font-size:11px;color:var(--muted)}
+.vrow dd{margin:0;font:500 13.5px var(--f-mono);font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
+.vrow.hl dd{color:var(--laser);font-weight:600}
+.calc{background:var(--panel-2);border:1px solid var(--grid);border-radius:4px;padding:8px 10px;overflow-x:auto}
+.calc-t{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px;font-weight:600}
+.calc-g{display:grid;grid-template-columns:auto 1fr;column-gap:8px;row-gap:1px;font:12.5px var(--f-mono);font-variant-numeric:tabular-nums}
+.calc-l{font-family:var(--f-math);font-style:italic;font-size:14.5px;white-space:nowrap}
+.calc-r{white-space:nowrap}
+.calc-r.res{color:var(--laser);font-weight:600}
+.calc-gap{grid-column:1/-1;height:6px}
+
+/* formulas */
+.formula{font-family:var(--f-math);font-size:17px;display:flex;flex-wrap:wrap;gap:8px 26px;align-items:center;line-height:1.3}
+.formula .eq{white-space:nowrap}
+.formula .eq.key{color:var(--laser)}
+.frac{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;margin:0 2px;font-size:.92em}
+.frac>span:first-child{border-bottom:1px solid currentColor;padding:0 3px}
+.frac>span:last-child{padding:0 3px}
+.m{font-family:var(--f-math);font-style:italic}
+.mono{font-family:var(--f-mono)}
+
+/* plot */
+.plot{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 10px 6px;min-width:0}
+.plot figcaption{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 10px;font-size:12.5px;margin-bottom:2px}
+.plot-t{font-weight:600}
+.plot-r{font:500 12px var(--f-mono);color:var(--laser);font-variant-numeric:tabular-nums}
+.plot-w{width:100%;overflow:hidden;touch-action:pan-y}
+.plot svg{display:block}
+.plot text.tick{font:10.5px var(--f-mono);fill:var(--muted)}
+.plot text.axl{font:12px var(--f-ui);fill:var(--ink-2)}
+.plot line.grid{stroke:var(--grid);stroke-width:1}
+.plot .frame{fill:none;stroke:var(--line)}
+.plot .curline{stroke:var(--laser);stroke-dasharray:4 3;stroke-width:1.2}
+.plot .hline{stroke:var(--muted);stroke-dasharray:2 4;stroke-width:1}
+.plot text.hlabel{font:10px var(--f-mono);fill:var(--muted)}
+.plot .xhair{stroke:var(--ink-2);stroke-width:1;opacity:.55}
+.plot .tip rect{fill:var(--ink)}
+.plot .tip text{font:11px var(--f-mono);fill:var(--panel)}
+.plot-n{font-size:11.5px;color:var(--muted);margin:2px 2px 2px}
+
+/* notes */
+.simp{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--ink-2);background:var(--warn-soft);border:1px solid var(--line);border-radius:4px;padding:7px 9px}
+.simp-tag{flex:none;font:600 10.5px var(--f-mono);letter-spacing:.03em;color:var(--warn);border:1px solid currentColor;border-radius:3px;padding:0 5px;margin-top:1px}
+.interp{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px;margin-top:12px}
+.interp h3{margin:0 0 8px;font-size:12px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2)}
+.interp p,.interp li{max-width:82ch;margin:0 0 8px;line-height:1.65}
+.interp ul{margin:0 0 8px;padding-left:20px}
+.interp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:4px 28px}
+
+.canvas-wrap{width:100%;min-width:0}
+.canvas-wrap canvas{display:block;max-width:100%}
+.viz-cap{font-size:12px;color:var(--ink-2);line-height:1.5}
+.viz-cap b{font-family:var(--f-mono);font-weight:600;color:var(--laser)}
+.viz-row{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start}
+.viz-row>*{min-width:0}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--ink-2)}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.meter{height:8px;border-radius:4px;background:var(--grid);overflow:hidden}
+.meter>span{display:block;height:100%;background:var(--laser)}
+
+.bigphase{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:10px 12px;border:1px solid var(--line);border-radius:6px;background:var(--panel-2)}
+.bigphase .val{font:600 30px var(--f-math);letter-spacing:-.01em}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:4px;font:600 13px var(--f-mono);border:1px solid var(--line);color:var(--muted)}
+.badge.on{background:var(--laser);color:var(--on-laser);border-color:var(--laser);font-size:15px}
+.badge.ok{background:var(--ok-soft);color:var(--ok);border-color:var(--ok)}
+
+/* summary */
+.tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+table.sum{border-collapse:collapse;width:100%;min-width:900px;font-size:13px}
+table.sum th,table.sum td{padding:9px 12px;border-bottom:1px solid var(--grid);text-align:left;vertical-align:top}
+table.sum th{font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2);background:var(--panel-2);font-weight:600}
+table.sum td.f{font-family:var(--f-math);font-size:16px;white-space:nowrap}
+table.sum td.n{font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:12.5px}
+table.sum tr:last-child td{border-bottom:none}
+.x2{display:inline-block;font:600 11px var(--f-mono);padding:1px 6px;border-radius:3px;background:var(--laser-soft);color:var(--laser);margin-left:6px;vertical-align:2px}
+.keyline{margin-top:14px;padding:18px 20px;border:2px solid var(--laser);border-radius:6px;background:var(--laser-soft);font-size:18px;font-weight:600;line-height:1.5;text-wrap:balance}
+.keyline small{display:block;font-size:13px;font-weight:400;color:var(--ink-2);margin-top:4px}
+.flow{display:flex;flex-direction:column;align-items:stretch;gap:0;max-width:640px}
+.flow .st{display:grid;grid-template-columns:28px minmax(0,1fr);gap:10px;align-items:start;border:1px solid var(--line);background:var(--panel);border-radius:5px;padding:10px 12px}
+.flow .st .k{font:600 12px var(--f-mono);color:var(--laser);padding-top:2px}
+.flow .st .t{font-weight:600}
+.flow .st .d{font-size:12.5px;color:var(--ink-2)}
+.flow .st .ex{font:12px var(--f-mono);color:var(--ink);margin-top:3px;overflow-wrap:anywhere}
+.flow .dn{text-align:center;color:var(--muted);font-size:16px;line-height:22px}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px;align-items:start}
+@media (max-width:900px){.two{grid-template-columns:minmax(0,1fr)}}
+.loading{padding:40px 20px;color:#6a7482;font-family:system-ui,sans-serif}
+@media (prefers-reduced-motion: reduce){*{scroll-behavior:auto}}
+</style>
+
+</head>
+<body>
+<div id="root"><div class="loading">시뮬레이터를 불러오는 중…</div></div>
+<noscript>이 시뮬레이션은 JavaScript가 필요합니다.</noscript>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.2/babel.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useId } = React;
+
+/* ================================================================
+   1. UNITS — every internal length is in SI metres
+   ================================================================ */
+const NM = 1e-9, UM = 1e-6, MM = 1e-3;
+const PI = Math.PI, TAU = 2 * Math.PI;
+
+/* ================================================================
+   2. CORE PHYSICS — every phase in this program comes from ONE relation:
+        Δφ = (2π/λ) · OPD          N = OPD/λ = Δφ/2π
+   Each phenomenon only supplies its own OPD model.
+   ================================================================ */
+const phaseFromOPD = (opd, lam) => TAU * opd / lam;
+const fringeNumber = (opd, lam) => opd / lam;
+const twoBeam = (I1, I2, dphi) => I1 + I2 + 2 * Math.sqrt(I1 * I2) * Math.cos(dphi);
+
+const OPD = {
+  doublePassIndex: (L, dn) => 2 * L * dn,   // Michelson: sample traversed twice
+  singlePassIndex: (L, dn) => L * dn,       // birefringence, MZI arm
+  reflection:      (dz) => 2 * dz,          // mirror / surface moved by dz
+  filmRoundTrip:   (n, d) => 2 * n * d,     // thin film, normal incidence
+};
+
+/* ================================================================
+   3. FORMATTING
+   ================================================================ */
+const SUPMAP = { '-': '⁻', '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' };
+const sup = n => String(n).split('').map(c => SUPMAP[c] || c).join('');
+const minus = s => s.replace(/^-/, '−');
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function sci(x, sig = 3) {
+  if (!isFinite(x)) return '—';
+  if (x === 0) return '0';
+  let e = Math.floor(Math.log10(Math.abs(x)));
+  let m = (x / Math.pow(10, e)).toFixed(sig - 1);
+  if (Math.abs(+m) >= 10) { e += 1; m = (x / Math.pow(10, e)).toFixed(sig - 1); }
+  return `${minus(m)}×10${sup(e)}`;
+}
+function fnum(x, sig = 4) {
+  if (!isFinite(x)) return '—';
+  if (x === 0) return '0';
+  const a = Math.abs(x);
+  if (a >= 1e4 || a < 1e-3) return sci(x, sig);
+  const s = x.toPrecision(sig);
+  return s.includes('e') ? sci(x, sig) : minus(s);
+}
+const fix = (x, d) => minus(x.toFixed(d));
+function fLen(m, sig = 4) {
+  if (!isFinite(m)) return '—';
+  if (m === 0) return '0 nm';
+  const a = Math.abs(m);
+  const U = [[1, 'm'], [1e-3, 'mm'], [1e-6, 'μm'], [1e-9, 'nm'], [1e-12, 'pm']];
+  for (const [u, n] of U) if (a >= u * 0.99995) return `${fnum(m / u, sig)} ${n}`;
+  return `${sci(m, sig)} m`;
+}
+const fPi = x => `${fnum(x / PI, 4)}π`;
+function niceTicks(a, b, n = 5) {
+  if (a > b) [a, b] = [b, a];
+  const span = (b - a) || 1;
+  const raw = span / n, mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
+  const step = (r < 1.5 ? 1 : r < 3 ? 2 : r < 7 ? 5 : 10) * mag;
+  const t = [];
+  for (let v = Math.ceil(a / step - 1e-9) * step; v <= b + step * 1e-9; v += step) t.push(Math.abs(v) < step * 1e-9 ? 0 : v);
+  return { ticks: t, step };
+}
+function tickFmt(v, step) {
+  if (v === 0) return '0';
+  const a = Math.abs(v);
+  if (a >= 1e5 || a < 1e-4) return sci(v, 2);
+  const d = clamp(-Math.floor(Math.log10(step) + 1e-9), 0, 6);
+  return fix(v, d);
+}
+function parseNum(s) {
+  const t = String(s).trim().replace(/[−–]/g, '-').replace(/\s/g, '').replace(/[×x]10\^?/i, 'e');
+  if (t === '') return null;
+  const v = Number(t);
+  return isFinite(v) ? v : null;
+}
+
+/* wavelength → display colour (visible band); IR shown as false colour */
+function wlColor(nm) {
+  let r = 0, g = 0, b = 0;
+  if (nm >= 380 && nm < 440) { r = -(nm - 440) / 60; b = 1; }
+  else if (nm >= 440 && nm < 490) { g = (nm - 440) / 50; b = 1; }
+  else if (nm >= 490 && nm < 510) { g = 1; b = -(nm - 510) / 20; }
+  else if (nm >= 510 && nm < 580) { r = (nm - 510) / 70; g = 1; }
+  else if (nm >= 580 && nm < 645) { r = 1; g = -(nm - 645) / 65; }
+  else if (nm >= 645 && nm <= 780) { r = 1; }
+  if (nm > 780) return { rgb: [0.78, 0.16, 0.2], ir: true, css: 'rgb(199,41,51)' };
+  if (nm < 380) return { rgb: [0.5, 0, 1], ir: true, css: 'rgb(128,0,255)' };
+  const mx = Math.max(r, g, b) || 1;
+  const rgb = [r / mx, g / mx, b / mx];
+  return { rgb, ir: false, css: `rgb(${rgb.map(v => Math.round(255 * Math.pow(v, 0.8))).join(',')})` };
+}
+
+/* ================================================================
+   4. HOOKS
+   ================================================================ */
+function useWidth(ref, fallback = 500) {
+  const [w, setW] = useState(fallback);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const ro = new ResizeObserver(es => { const cw = es[0].contentRect.width; if (cw > 0) setW(Math.floor(cw)); });
+    ro.observe(el); return () => ro.disconnect();
+  }, []);
+  return w;
+}
+function useThemeKey() {
+  const [k, setK] = useState(0);
+  useEffect(() => {
+    const f = () => setK(x => x + 1);
+    const mq = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+    mq && mq.addEventListener && mq.addEventListener('change', f);
+    const mo = new MutationObserver(f);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => { mq && mq.removeEventListener && mq.removeEventListener('change', f); mo.disconnect(); };
+  }, []);
+  return k;
+}
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const REDUCED = typeof window !== 'undefined' && window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+function useRaf(active, cb) {
+  const ref = useRef(cb); ref.current = cb;
+  useEffect(() => {
+    if (!active) return;
+    let id, last = performance.now();
+    const loop = now => { const dt = Math.min(0.05, (now - last) / 1000); last = now; ref.current(dt); id = requestAnimationFrame(loop); };
+    id = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(id);
+  }, [active]);
+}
+function setupCanvas(cv, w, h) {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const W = Math.round(w * dpr), H = Math.round(h * dpr);
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, dpr, W, H };
+}
+
+/* ================================================================
+   5. UI PRIMITIVES
+   ================================================================ */
+function Slider({ id, label, value, onChange, min, max, step, scale = 1, dec = 3, unit, hardMin, hardMax, note }) {
+  const disp = value / scale;
+  const [txt, setTxt] = useState(null);
+  const commit = () => {
+    if (txt === null) return;
+    const v = parseNum(txt); setTxt(null);
+    if (v === null) return;
+    onChange(clamp(v, hardMin ?? min, hardMax ?? max) * scale);
+  };
+  return (
+    <div className="ctl">
+      <div className="ctl-top">
+        <label htmlFor={id}>{label}</label>
+        <div className="ctl-num">
+          <input id={id + '-num'} aria-label={`${typeof label === 'string' ? label : id} 값 입력`} inputMode="decimal"
+            value={txt !== null ? txt : fix(disp, dec).replace('−', '-')}
+            onChange={e => setTxt(e.target.value)} onBlur={commit}
+            onKeyDown={e => { if (e.key === 'Enter') { commit(); e.currentTarget.blur(); } }} />
+          <span className="unit">{unit || ''}</span>
+        </div>
+      </div>
+      <input id={id} type="range" min={min} max={max} step={step} value={clamp(disp, min, max)}
+        onChange={e => onChange(parseFloat(e.target.value) * scale)} />
+      {note && <div className="ctl-note">{note}</div>}
+    </div>
+  );
+}
+function Seg({ options, value, onChange, label }) {
+  return (
+    <div className="seg" role="radiogroup" aria-label={label}>
+      {options.map(o => (
+        <button key={o.v} type="button" role="radio" aria-checked={value === o.v} onClick={() => onChange(o.v)}>{o.l}</button>
+      ))}
+    </div>
+  );
+}
+function Panel({ title, right, children, className = '' }) {
+  return (
+    <section className={'panel ' + className}>
+      <header className="panel-h"><h3>{title}</h3>{right}</header>
+      <div className="panel-b">{children}</div>
+    </section>
+  );
+}
+function Vals({ rows }) {
+  return (
+    <dl className="vals">
+      {rows.map((r, i) => (
+        <div key={i} className={'vrow' + (r.hl ? ' hl' : '')}>
+          <dt>{r.k}{r.sub && <small>{r.sub}</small>}</dt>
+          <dd>{r.v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+function Calc({ title = '현재 값 대입', lines }) {
+  return (
+    <div className="calc">
+      <div className="calc-t">{title}</div>
+      <div className="calc-g">
+        {lines.map((ln, i) => ln === null
+          ? <div key={i} className="calc-gap" />
+          : <React.Fragment key={i}><span className="calc-l">{ln[0]}</span><span className={'calc-r' + (ln[2] ? ' res' : '')}>{ln[1]}</span></React.Fragment>)}
+      </div>
+    </div>
+  );
+}
+const Simplified = ({ children }) => <div className="simp"><span className="simp-tag">Simplified model</span><span>{children}</span></div>;
+const Fr = ({ n, d }) => <span className="frac"><span>{n}</span><span>{d}</span></span>;
+const ResetBtn = ({ onClick }) => <button type="button" className="btn sm" onClick={onClick}>Reset to default</button>;
+const Interp = ({ children }) => <section className="interp"><h3>Physical interpretation</h3><div className="interp-grid">{children}</div></section>;
+
+/* generic function plot: axis labels + units, grid, current marker, numeric readout, hover crosshair */
+function Plot({ title, f, x0, x1, xScale = 1, xLabel, yLabel, yDomain, yFmt = v => fnum(v, 4), xFmt, cur, readout,
+  hlines = [], samples = 1200, height = 240, color = 'var(--plot)', note }) {
+  const wrap = useRef(null);
+  const W = useWidth(wrap, 520);
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
+  const [hover, setHover] = useState(null);
+  const m = { l: 58, r: 16, t: 12, b: 42 };
+  const iw = Math.max(40, W - m.l - m.r), ih = height - m.t - m.b;
+  const pts = [];
+  for (let i = 0; i <= samples; i++) { const x = x0 + (x1 - x0) * i / samples; pts.push([x, f(x)]); }
+  let y0, y1;
+  if (yDomain) [y0, y1] = yDomain;
+  else {
+    let lo = Infinity, hi = -Infinity;
+    for (const p of pts) if (isFinite(p[1])) { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); }
+    if (cur && isFinite(cur.y)) { lo = Math.min(lo, cur.y); hi = Math.max(hi, cur.y); }
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    if (hi - lo < 1e-15) { const c = Math.abs(lo) || 1; lo -= 0.5 * c; hi += 0.5 * c; }
+    const pad = (hi - lo) * 0.08; y0 = lo - pad; y1 = hi + pad;
+  }
+  const X = x => m.l + (x - x0) / (x1 - x0) * iw;
+  const Y = y => m.t + (1 - (y - y0) / (y1 - y0)) * ih;
+  const xt = niceTicks(x0 / xScale, x1 / xScale, Math.max(3, Math.floor(iw / 85)));
+  const yt = niceTicks(y0, y1, Math.max(3, Math.floor(ih / 38)));
+  const lim = 20 * (y1 - y0);
+  const d = 'M' + pts.map(p => X(p[0]).toFixed(1) + ',' + Y(clamp(p[1], y0 - lim, y1 + lim)).toFixed(1)).join('L');
+  const xf = xFmt || (v => fnum(v / xScale, 4));
+  const onMove = e => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const px = (e.clientX - r.left) * (W / r.width);
+    if (px < m.l || px > m.l + iw) { setHover(null); return; }
+    const x = x0 + (px - m.l) / iw * (x1 - x0);
+    setHover({ x, y: f(x) });
+  };
+  const curIn = cur && cur.x >= x0 && cur.x <= x1;
+  let tip = null;
+  if (hover) {
+    const hx = X(hover.x), hy = Y(clamp(hover.y, y0, y1));
+    const label = `${xf(hover.x)} , ${yFmt(hover.y)}`;
+    const tw = label.length * 6.6 + 12;
+    const tx = hx + 10 + tw > m.l + iw ? hx - 10 - tw : hx + 10;
+    const ty = clamp(hy - 26, m.t, m.t + ih - 20);
+    tip = (
+      <g pointerEvents="none">
+        <line className="xhair" x1={hx} x2={hx} y1={m.t} y2={m.t + ih} />
+        <circle cx={hx} cy={hy} r="3.5" fill="var(--ink)" />
+        <g className="tip"><rect x={tx} y={ty} width={tw} height="19" rx="3" /><text x={tx + 6} y={ty + 13}>{label}</text></g>
+      </g>
+    );
+  }
+  return (
+    <figure className="plot">
+      <figcaption><span className="plot-t">{title}</span>{readout && <span className="plot-r">{readout}</span>}</figcaption>
+      <div ref={wrap} className="plot-w">
+        <svg width={W} height={height} viewBox={`0 0 ${W} ${height}`} role="img" aria-label={title}
+          onPointerMove={onMove} onPointerLeave={() => setHover(null)}>
+          <defs><clipPath id={'c' + uid}><rect x={m.l} y={m.t} width={iw} height={ih} /></clipPath></defs>
+          <rect x={m.l} y={m.t} width={iw} height={ih} fill="var(--plot-bg)" />
+          {xt.ticks.map(t => (
+            <g key={'x' + t}>
+              <line className="grid" x1={X(t * xScale)} x2={X(t * xScale)} y1={m.t} y2={m.t + ih} />
+              <text className="tick" x={X(t * xScale)} y={m.t + ih + 14} textAnchor="middle">{tickFmt(t, xt.step)}</text>
+            </g>
+          ))}
+          {yt.ticks.map(t => (
+            <g key={'y' + t}>
+              <line className="grid" x1={m.l} x2={m.l + iw} y1={Y(t)} y2={Y(t)} />
+              <text className="tick" x={m.l - 6} y={Y(t) + 3.5} textAnchor="end">{tickFmt(t, yt.step)}</text>
+            </g>
+          ))}
+          <g clipPath={`url(#c${uid})`}>
+            {hlines.filter(h => h.y >= y0 && h.y <= y1).map((h, i) => (
+              <g key={'h' + i}>
+                <line className="hline" x1={m.l} x2={m.l + iw} y1={Y(h.y)} y2={Y(h.y)} />
+                <text className="hlabel" x={m.l + 4} y={Y(h.y) - 3}>{h.label}</text>
+              </g>
+            ))}
+            <path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+            {curIn && <line className="curline" x1={X(cur.x)} x2={X(cur.x)} y1={m.t} y2={m.t + ih} />}
+          </g>
+          <rect className="frame" x={m.l} y={m.t} width={iw} height={ih} />
+          {curIn && isFinite(cur.y) && cur.y >= y0 && cur.y <= y1 &&
+            <circle cx={X(cur.x)} cy={Y(cur.y)} r="5.5" fill="var(--laser)" stroke="var(--panel)" strokeWidth="2" />}
+          {tip}
+          <text className="axl" x={m.l + iw / 2} y={height - 6} textAnchor="middle">{xLabel}</text>
+          <text className="axl" transform={`translate(14 ${m.t + ih / 2}) rotate(-90)`} textAnchor="middle">{yLabel}</text>
+        </svg>
+      </div>
+      {note && <div className="plot-n">{note}</div>}
+    </figure>
+  );
+}
+function scaleFor(maxAbs) {
+  const e = Math.floor(Math.log10(maxAbs || 1));
+  return { s: Math.pow(10, e), lbl: e === 0 ? '' : ` (×10${sup(e)})` };
+}
+
+/* ================================================================
+   TAB 1 — refractive-index change in one Michelson arm
+   ================================================================ */
+const T1_DEFAULT = { lambda_nm: 632.8, L_mm: 1, n0: 1.5, dn: 2e-4, I1: 1, I2: 1 };
+function computeT1(s) {
+  const lam = s.lambda_nm * NM, L = s.L_mm * MM;
+  const opl0 = s.n0 * L;
+  const dOPL = OPD.singlePassIndex(L, s.dn);
+  const opd = OPD.doublePassIndex(L, s.dn);
+  const dphi = phaseFromOPD(opd, lam);
+  const N = fringeNumber(opd, lam);
+  const I = twoBeam(s.I1, s.I2, dphi);
+  const Imax = Math.pow(Math.sqrt(s.I1) + Math.sqrt(s.I2), 2);
+  const V = s.I1 + s.I2 > 0 ? 2 * Math.sqrt(s.I1 * s.I2) / (s.I1 + s.I2) : 0;
+  return { lam, L, opl0, dOPL, opd, dphi, N, I, Imax, In: Imax > 0 ? I / Imax : 0, V };
+}
+
+function MichelsonSchematic({ lamNm, dn, L_mm }) {
+  const beam = wlColor(lamNm).css;
+  const fillOp = 0.1 + 0.55 * clamp(dn / 1e-3, 0, 1);
+  return (
+    <svg viewBox="0 0 380 250" width="100%" style={{ maxWidth: 440, display: 'block' }} role="img" aria-label="Michelson 간섭계 개략도">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-2)" />
+        </marker>
+      </defs>
+      <rect x="6" y="110" width="74" height="30" rx="3" fill="var(--panel-2)" stroke="var(--ink-2)" />
+      <text x="43" y="123" textAnchor="middle" fontSize="11" fill="var(--ink)" fontWeight="600">Laser</text>
+      <text x="43" y="135" textAnchor="middle" fontSize="10" fill="var(--muted)" fontFamily="var(--f-mono)">{fix(lamNm, 1)} nm</text>
+      <line x1="80" y1="125" x2="190" y2="125" stroke={beam} strokeWidth="2.5" />
+      <line x1="190" y1="125" x2="190" y2="30" stroke={beam} strokeWidth="2.5" />
+      <line x1="190" y1="125" x2="352" y2="125" stroke={beam} strokeWidth="2.5" />
+      <line x1="190" y1="125" x2="190" y2="222" stroke={beam} strokeWidth="2.5" opacity=".85" />
+      <line x1="172" y1="143" x2="208" y2="107" stroke="var(--ink-2)" strokeWidth="5" opacity=".6" />
+      <text x="212" y="148" fontSize="11" fill="var(--ink-2)">BS</text>
+      <line x1="164" y1="25" x2="216" y2="25" stroke="var(--ink)" strokeWidth="5" />
+      <text x="222" y="29" fontSize="11" fill="var(--ink-2)">M₂ (reference arm)</text>
+      <line x1="356" y1="98" x2="356" y2="152" stroke="var(--ink)" strokeWidth="5" />
+      <text x="356" y="90" textAnchor="middle" fontSize="11" fill="var(--ink-2)">M₁</text>
+      <rect x="252" y="108" width="62" height="34" fill="var(--laser)" fillOpacity={fillOp} stroke="var(--laser)" strokeWidth="1.2" />
+      <text x="283" y="100" textAnchor="middle" fontSize="11" fill="var(--ink)">시료 n₀+Δn</text>
+      <line x1="252" y1="160" x2="314" y2="160" stroke="var(--ink-2)" strokeWidth="1.2" markerEnd="url(#ah)" />
+      <line x1="314" y1="170" x2="252" y2="170" stroke="var(--ink-2)" strokeWidth="1.2" markerEnd="url(#ah)" />
+      <text x="283" y="186" textAnchor="middle" fontSize="10.5" fill="var(--ink-2)">L = {fix(L_mm, 2)} mm, 왕복 2회 통과</text>
+      <text x="283" y="200" textAnchor="middle" fontSize="11" fill="var(--laser)" fontFamily="var(--f-math)" fontStyle="italic">OPD = 2LΔn</text>
+      <rect x="158" y="224" width="64" height="8" fill="var(--ink)" />
+      <text x="228" y="233" fontSize="11" fill="var(--ink-2)">Screen / Detector</text>
+    </svg>
+  );
+}
+
+/* circular fringes: phase at radius r = Δφ − 2πK(r/R)² (increasing OPD ⇒ rings are born at the centre) */
+function FringeRings({ dphi, N, I1, I2, lamNm }) {
+  const wrap = useRef(null), cv = useRef(null);
+  const w = useWidth(wrap, 280);
+  const theme = useThemeKey();
+  const S = clamp(w, 180, 300);
+  const K = 5;
+  useEffect(() => {
+    const c = cv.current; if (!c) return;
+    const { ctx, dpr, W } = setupCanvas(c, S, S);
+    const img = ctx.createImageData(W, W);
+    const [cr, cg, cb] = wlColor(lamNm).rgb;
+    const Imax = Math.pow(Math.sqrt(I1) + Math.sqrt(I2), 2) || 1;
+    const R = W / 2 * 0.96, cx = W / 2;
+    const bg = [7, 9, 12];
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+      const r2 = ((x - cx) ** 2 + (y - cx) ** 2) / (R * R);
+      const i = (y * W + x) * 4;
+      if (r2 > 1) { img.data[i] = bg[0]; img.data[i + 1] = bg[1]; img.data[i + 2] = bg[2]; img.data[i + 3] = 255; continue; }
+      const In = twoBeam(I1, I2, dphi - TAU * K * r2) / Imax;
+      const v = Math.pow(clamp(In, 0, 1), 0.85) * 255;
+      img.data[i] = cr * v; img.data[i + 1] = cg * v; img.data[i + 2] = cb * v; img.data[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const Rc = S / 2 * 0.96, c0 = S / 2;
+    // reference positions of bright rings at Δn = 0
+    ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 1;
+    ctx.font = '10px "IBM Plex Mono", monospace'; ctx.textAlign = 'center';
+    ctx.beginPath(); ctx.moveTo(c0, c0); ctx.lineTo(c0 + Rc, c0); ctx.globalAlpha = .35; ctx.stroke(); ctx.globalAlpha = 1;
+    for (let k = 1; k <= K; k++) {
+      const rk = Rc * Math.sqrt(k / K);
+      ctx.beginPath(); ctx.moveTo(c0 + rk, c0 - 5); ctx.lineTo(c0 + rk, c0 + 5); ctx.stroke();
+      if (k < K) ctx.fillText(String(k), c0 + rk, c0 + 16);
+    }
+    // tracked fringe: the bright ring born most recently at the centre (order m = ⌊N⌋)
+    const frac = N - Math.floor(N);
+    const rt = Rc * Math.sqrt(frac / K);
+    ctx.setLineDash([5, 4]); ctx.lineWidth = 1.6; ctx.strokeStyle = 'rgba(255,255,255,.95)';
+    ctx.beginPath(); ctx.arc(c0, c0, Math.max(rt, 1.5), 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(c0 - 6, c0); ctx.lineTo(c0 + 6, c0); ctx.moveTo(c0, c0 - 6); ctx.lineTo(c0, c0 + 6); ctx.stroke();
+  }, [dphi, N, I1, I2, lamNm, S, theme]);
+  return (
+    <div ref={wrap} className="canvas-wrap" style={{ maxWidth: 300 }}>
+      <canvas ref={cv} role="img" aria-label={`원형 간섭무늬, fringe 이동 ${fnum(N, 3)}`} />
+    </div>
+  );
+}
+
+function Tab1({ s, set }) {
+  const c = computeT1(s);
+  const up = k => v => set(p => ({ ...p, [k]: v }));
+  const [sweep, setSweep] = useState(false);
+  useRaf(sweep, dt => set(p => { let dn = p.dn + dt * 1e-3 / 12; if (dn > 1e-3) dn = 0; return { ...p, dn }; }));
+  const col = wlColor(s.lambda_nm);
+  const fA = dn => phaseFromOPD(OPD.doublePassIndex(c.L, dn), c.lam);
+  const fB = dn => twoBeam(s.I1, s.I2, fA(dn)) / (c.Imax || 1);
+  const maxPh = fA(1e-3);
+  const nLines = Math.floor(maxPh / TAU);
+  const hl = nLines <= 10 ? Array.from({ length: nLines }, (_, i) => ({ y: TAU * (i + 1), label: `N=${i + 1} (${i + 1}·2π)` })) : [];
+  const frac = c.N - Math.floor(c.N);
+  return (
+    <>
+      <div className="work">
+        <div className="col">
+          <Panel title="Parameter controls" right={<ResetBtn onClick={() => { setSweep(false); set(T1_DEFAULT); }} />}>
+            <Slider id="t1-lam" label={<span><span className="swatch" style={{ background: col.css }} />파장 λ</span>} value={s.lambda_nm} onChange={up('lambda_nm')} min={400} max={1000} step={0.1} dec={1} unit="nm"
+              note={col.ir ? '근적외선: 화면 색은 가색상' : null} />
+            <Slider id="t1-L" label="시료 길이 L" value={s.L_mm} onChange={up('L_mm')} min={0.1} max={10} step={0.01} dec={2} unit="mm" />
+            <Slider id="t1-n0" label="초기 굴절률 n₀" value={s.n0} onChange={up('n0')} min={1} max={4} step={0.001} dec={3} unit="" />
+            <Slider id="t1-dn" label="굴절률 변화 Δn" value={s.dn} onChange={up('dn')} min={0} max={10} step={0.001} scale={1e-4} dec={3} unit="×10⁻⁴" />
+            <Slider id="t1-I1" label="광 세기 I₁ (reference)" value={s.I1} onChange={up('I1')} min={0} max={2} step={0.01} dec={2} unit="a.u." />
+            <Slider id="t1-I2" label="광 세기 I₂ (sample)" value={s.I2} onChange={up('I2')} min={0} max={2} step={0.01} dec={2} unit="a.u." />
+            <div className="btnrow">
+              <button type="button" className={'btn' + (sweep ? ' primary' : '')} onClick={() => setSweep(v => !v)}>{sweep ? '■ 스윕 정지' : '▶ Δn 스윕 (0 → 1×10⁻³)'}</button>
+            </div>
+          </Panel>
+        </div>
+
+        <div className="col">
+          <Panel title="Optical schematic · fringe view">
+            <div className="formula">
+              <span className="eq">OPL = <i>nL</i></span>
+              <span className="eq">Δ(OPL) = <i>L</i>Δ<i>n</i></span>
+              <span className="eq key">OPD = 2<i>L</i>Δ<i>n</i></span>
+              <span className="eq">Δ<i>φ</i> = <Fr n="2π" d={<i>λ</i>} />·OPD = <Fr n={<>4π<i>L</i>Δ<i>n</i></>} d={<i>λ</i>} /></span>
+              <span className="eq"><i>N</i> = <Fr n="OPD" d={<i>λ</i>} /> = <Fr n={<>Δ<i>φ</i></>} d="2π" /></span>
+            </div>
+            <div className="viz-row">
+              <div style={{ flex: '1 1 260px' }}><MichelsonSchematic lamNm={s.lambda_nm} dn={s.dn} L_mm={s.L_mm} /></div>
+              <div style={{ flex: '0 1 300px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <FringeRings dphi={c.dphi} N={c.N} I1={s.I1} I2={s.I2} lamNm={s.lambda_nm} />
+                <div className="viz-cap">
+                  N = <b>{fix(c.N, 3)}</b> · 중심에서 새로 생긴 fringe <b>{Math.floor(c.N + 1e-9)}</b>개,
+                  점선 고리는 가장 최근에 생긴 밝은 fringe로 한 주기 중 <b>{fix(frac, 3)}</b>만큼 이동했다.
+                  눈금 1–4는 Δn = 0일 때의 밝은 고리 위치. N이 1 증가하면 점선 고리가 눈금 1에 도달한다.
+                </div>
+                <div>
+                  <div className="viz-cap" style={{ marginBottom: 3 }}>중심 검출기 세기 I/I<sub>max</sub> = <b>{fix(c.In, 3)}</b></div>
+                  <div className="meter"><span style={{ width: `${clamp(c.In, 0, 1) * 100}%` }} /></div>
+                </div>
+              </div>
+            </div>
+            <Simplified>
+              고리 간격(링 반경 분포)은 표시용이며, 중심의 위상과 고리 이동량만 계산 결과(Δφ)와 정량적으로 연결되어 있다.
+              Δn = 0에서 두 팔의 광경로가 같아 중심이 밝다고 두었다. 실제 장치에서는 거울 기울기, 빔 발산, 시료 표면 반사·분산이 무늬 모양을 바꾼다.
+            </Simplified>
+          </Panel>
+        </div>
+
+        <div className="col col-vals">
+          <Panel title="Calculated values">
+            <Vals rows={[
+              { k: 'Δn', v: sci(s.dn, 3) },
+              { k: 'OPL₀ = n₀L', sub: '초기 단일 통과 광경로', v: fLen(c.opl0) },
+              { k: 'Δ(OPL) = LΔn', sub: '단일 통과 광경로 변화', v: fLen(c.dOPL) },
+              { k: 'OPD = 2LΔn', sub: 'Michelson 왕복 광경로차', v: fLen(c.opd), hl: true },
+              { k: 'Δφ', sub: '위상 변화', v: `${fnum(c.dphi, 4)} rad`, hl: true },
+              { k: 'Δφ / 2π', v: `${fnum(c.dphi / TAU, 4)} cycle` },
+              { k: 'N = OPD/λ', sub: '이동한 fringe 수', v: fnum(c.N, 4), hl: true },
+              { k: 'Δφ = 2πN 확인', v: `2π×${fnum(c.N, 4)} = ${fnum(TAU * c.N, 4)} rad` },
+              { k: 'I', sub: '현재 간섭 세기', v: `${fnum(c.I, 4)} a.u.` },
+              { k: 'I / I_max', v: fix(c.In, 4) },
+              { k: 'Visibility V', sub: '2√(I₁I₂)/(I₁+I₂)', v: fix(c.V, 3) },
+            ]} />
+            <Calc lines={[
+              ['OPD', '= 2LΔn'],
+              ['', `= 2 × (${fLen(c.L)}) × (${sci(s.dn, 4)})`],
+              ['', `= ${fLen(c.opd)}`, true],
+              null,
+              ['Δφ', '= (2π/λ)·OPD = 4πLΔn / λ'],
+              ['', `= 4π(${fLen(c.L)})(${sci(s.dn, 4)}) / (${fLen(c.lam)})`],
+              ['', `= ${fnum(c.dphi, 4)} rad`, true],
+              null,
+              ['N', '= OPD / λ'],
+              ['', `= (${fLen(c.opd)}) / (${fLen(c.lam)}) = ${fnum(c.N, 4)}`, true],
+              null,
+              ['I', '= I₁ + I₂ + 2√(I₁I₂) cos Δφ'],
+              ['', `= ${fix(s.I1, 2)} + ${fix(s.I2, 2)} + 2√(${fix(s.I1, 2)}·${fix(s.I2, 2)}) cos(${fnum(c.dphi, 4)})`],
+              ['', `= ${fnum(c.I, 4)} a.u.`, true],
+            ]} />
+          </Panel>
+        </div>
+      </div>
+
+      <div className="graphs">
+        <Plot title="Graph A · 위상 변화 Δφ vs Δn" f={fA} x0={0} x1={1e-3} xScale={1e-4}
+          xLabel="굴절률 변화 Δn (×10⁻⁴)" yLabel="Δφ (rad)" cur={{ x: s.dn, y: c.dphi }}
+          readout={`Δn = ${sci(s.dn, 3)} → Δφ = ${fnum(c.dphi, 4)} rad`} hlines={hl} samples={300}
+          yFmt={v => `${fnum(v, 4)} rad`} xFmt={v => `Δn=${sci(v, 3)}`}
+          note="점선: Δφ = 2π의 정수배 = fringe 한 개씩 이동한 지점" />
+        <Plot title="Graph B · 정규화 간섭 세기 vs Δn" f={fB} x0={0} x1={1e-3} xScale={1e-4} yDomain={[0, 1.05]}
+          xLabel="굴절률 변화 Δn (×10⁻⁴)" yLabel="I / I_max" cur={{ x: s.dn, y: c.In }} samples={2400}
+          readout={`I/I_max = ${fix(c.In, 4)}`} yFmt={v => `I/Imax=${fix(v, 3)}`} xFmt={v => `Δn=${sci(v, 3)}`}
+          note={`I_max = (√I₁+√I₂)² = ${fnum(c.Imax, 4)} a.u. · 밝음→어둠→밝음 한 주기 = Δn 변화 λ/(2L) = ${sci(c.lam / (2 * c.L), 3)}`} />
+      </div>
+
+      <Interp>
+        <div>
+          <p>굴절률이 증가하면 빛은 같은 물리적 길이 <i>L</i>을 지나는 동안 더 많은 파장 수를 겪는다. 즉 optical path length <span className="m">OPL = nL</span>이 증가한다. 기준 팔(M₂)은 그대로이므로 두 팔 사이의 optical path difference가 변하고, 이것이 위상차로 나타난다.</p>
+          <p>Michelson 간섭계에서는 빛이 시료를 <b>갈 때 한 번, 거울에서 반사되어 돌아올 때 한 번</b> 지나므로 광경로차는 <span className="m">2LΔn</span>이다. 이 factor 2 때문에 같은 Δn에 대해 단일 통과 장치(예: Mach–Zehnder)보다 위상 변화가 두 배 크다.</p>
+        </div>
+        <div>
+          <p>위상차가 2π만큼 변할 때 OPD는 정확히 한 파장 λ만큼 변하므로 무늬가 한 개 이동한다. 따라서 중심에서 생겨난 fringe 수를 세면 <span className="m">Δn = Nλ/(2L)</span>로 굴절률 변화를 얻는다. 현재 설정에서 fringe 한 개는 Δn = {sci(c.lam / (2 * c.L), 3)}에 해당한다.</p>
+          <p>n₀는 절대 광경로(OPL₀)만 바꾸고 fringe <i>이동</i>에는 들어가지 않는다. 측정되는 것은 굴절률의 <i>변화</i>이다. 실제로 시료가 가열되어 Δn이 생기면 열팽창으로 <i>L</i>도 변하므로 OPD = 2Δ(nL) ≈ 2(LΔn + nΔL)을 함께 고려해야 한다.</p>
+        </div>
+      </Interp>
+    </>
+  );
+}
+
+/* ================================================================
+   TAB 2 — optical anisotropy & birefringence
+   ================================================================ */
+const T2_DEFAULT = { mode: 'xy', lambda_nm: 632.8, L_mm: 1, nx: 1.5, ny: 1.499, analyzer: 'crossed' };
+const T2_PRESETS = [
+  { name: '기본값', nx: 1.5, ny: 1.499 },
+  { name: 'Quartz', nx: 1.5517, ny: 1.5427, note: 'α-SiO₂, n_e/n_o @633 nm' },
+  { name: 'Calcite', nx: 1.4852, ny: 1.6557, note: 'CaCO₃, n_e/n_o @633 nm' },
+  { name: 'LiNbO₃', nx: 2.2030, ny: 2.2860, note: 'n_e/n_o @633 nm' },
+  { name: '응력 Si (예시)', nx: 3.88002, ny: 3.88, note: '응력 유기 Δn ≈ 2×10⁻⁵, 예시값' },
+];
+function computeT2(s) {
+  const lam = s.lambda_nm * NM, L = s.L_mm * MM;
+  const dn = s.nx - s.ny;
+  const opd = OPD.singlePassIndex(L, dn);
+  const dphi = phaseFromOPD(opd, lam);
+  const N = fringeNumber(opd, lam);
+  const I = s.analyzer === 'parallel' ? Math.cos(dphi / 2) ** 2 : Math.sin(dphi / 2) ** 2;
+  const aN = Math.abs(N), order = Math.floor(aN + 1e-9), fr = aN - order;
+  const near = (a, b) => Math.abs(a - b) < 0.01;
+  let plate = '일반 retarder (타원 편광)';
+  if (near(fr, 0) || near(fr, 1)) plate = order === 0 && near(fr, 0) ? '위상차 없음' : 'full-wave (λ) — 편광 유지';
+  else if (near(fr, 0.25)) plate = 'λ/4 retardation (quarter-wave)';
+  else if (near(fr, 0.5)) plate = 'λ/2 retardation (half-wave)';
+  else if (near(fr, 0.75)) plate = '3λ/4 ≡ λ/4 (회전 방향 반대)';
+  const md = ((dphi % TAU) + TAU) % TAU;
+  const pol = Math.abs(Math.sin(md)) < 0.03 ? '선형 편광' : Math.abs(Math.cos(md)) < 0.03 ? '원형 편광' : '타원 편광';
+  return { lam, L, dn, opd, dphi, N, I, order, fr, plate, md, pol, navg: (s.nx + s.ny) / 2 };
+}
+
+function PolWaves({ dphi, playing, dn }) {
+  const wrap = useRef(null), cv = useRef(null);
+  const W = useWidth(wrap, 560);
+  const H = 220;
+  const theme = useThemeKey();
+  const t = useRef(0);
+  const draw = () => {
+    const c = cv.current; if (!c) return;
+    const { ctx } = setupCanvas(c, W, H);
+    const col = { x: cssVar('--plot'), y: cssVar('--plot-2'), ink: cssVar('--ink-2'), muted: cssVar('--muted'), line: cssVar('--line'), p2: cssVar('--panel-2'), bg: cssVar('--panel') };
+    ctx.clearRect(0, 0, W, H);
+    const narrow = W < 460;
+    const ellW = narrow ? 0 : Math.min(170, W * 0.3);
+    const wavW = W - ellW - (narrow ? 0 : 14);
+    const z1 = wavW * 0.28, z2 = wavW * 0.72, cy = H / 2 + 6, A = H * 0.28;
+    const k = TAU / 46, nvis = 1.7, om = TAU * 0.5, tt = t.current;
+    ctx.fillStyle = col.p2; ctx.strokeStyle = col.line; ctx.lineWidth = 1;
+    ctx.fillRect(z1, 22, z2 - z1, H - 34); ctx.strokeRect(z1 + .5, 22.5, z2 - z1 - 1, H - 35);
+    ctx.fillStyle = col.muted; ctx.font = '11px "IBM Plex Sans KR", sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('결정 (nₓ, nᵧ) · 두께 L', (z1 + z2) / 2, 16);
+    ctx.textAlign = 'left'; ctx.fillText('입사: 동위상', 4, 16);
+    ctx.textAlign = 'right'; ctx.fillText('출사: 상대 위상 Δφ', wavW - 2, 16);
+    ctx.strokeStyle = col.line; ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(wavW, cy); ctx.stroke();
+    const base = z => k * (z + (nvis - 1) * clamp(z - z1, 0, z2 - z1));
+    const sfrac = z => clamp((z - z1) / (z2 - z1), 0, 1);
+    const wave = (extra, color) => {
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+      for (let z = 0; z <= wavW; z += 1.5) {
+        const y = cy - A * Math.sin(base(z) - om * tt - extra(z));
+        z === 0 ? ctx.moveTo(z, y) : ctx.lineTo(z, y);
+      }
+      ctx.stroke();
+    };
+    wave(() => 0, col.y);
+    wave(z => dphi * sfrac(z), col.x);
+    if (!narrow) {
+      const ex = W - ellW / 2, r = Math.min(ellW / 2 - 16, H / 2 - 34), ey = cy - 4;
+      ctx.strokeStyle = col.line; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(ex - r - 6, ey); ctx.lineTo(ex + r + 6, ey); ctx.moveTo(ex, ey - r - 6); ctx.lineTo(ex, ey + r + 6); ctx.stroke();
+      ctx.strokeStyle = col.ink; ctx.lineWidth = 1.8; ctx.beginPath();
+      for (let i = 0; i <= 200; i++) { const tau = TAU * i / 200; const X = ex + r * Math.cos(tau - dphi), Y = ey - r * Math.cos(tau); i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }
+      ctx.stroke();
+      const tau = om * tt; const X = ex + r * Math.cos(tau - dphi), Y = ey - r * Math.cos(tau);
+      ctx.fillStyle = cssVar('--laser'); ctx.beginPath(); ctx.arc(X, Y, 4, 0, TAU); ctx.fill();
+      ctx.fillStyle = col.muted; ctx.textAlign = 'center'; ctx.font = '11px "IBM Plex Sans KR", sans-serif';
+      ctx.fillText('출사 편광 (Eₓ, Eᵧ)', ex, 16);
+      ctx.font = '10px "IBM Plex Mono", monospace';
+      ctx.fillText('Eₓ →', ex + r - 2, ey + r + 18 > H - 2 ? H - 2 : ey + r + 18);
+    }
+  };
+  useRaf(playing, dt => { t.current += dt; draw(); });
+  useEffect(() => { draw(); }, [dphi, W, theme, playing]);
+  return <div ref={wrap} className="canvas-wrap"><canvas ref={cv} role="img" aria-label={`x, y 편광 성분 파동. 상대 위상 ${fnum(dphi, 3)} rad`} /></div>;
+}
+
+function Tab2({ s, set }) {
+  const c = computeT2(s);
+  const up = k => v => set(p => ({ ...p, [k]: v }));
+  const [play, setPlay] = useState(!REDUCED);
+  const setAvg = v => set(p => { const d = p.nx - p.ny; return { ...p, nx: v + d / 2, ny: v - d / 2 }; });
+  const setDn = d => set(p => { const a = (p.nx + p.ny) / 2; return { ...p, nx: a + d / 2, ny: a - d / 2 }; });
+  const setRetard = frac => set(p => { const a = (p.nx + p.ny) / 2; const d = frac * p.lambda_nm * NM / (p.L_mm * MM); return { ...p, nx: a + d / 2, ny: a - d / 2 }; });
+  // graph domains (zoom when the fringe density would alias)
+  const a = Math.max(2e-3, 1.2 * Math.abs(c.dn));
+  const scA = scaleFor(a);
+  let gx0 = -a, gx1 = a, zoom = false;
+  if (2 * a * c.L / c.lam > 80) { const hw = 6 * c.lam / c.L; gx0 = c.dn - hw; gx1 = c.dn + hw; zoom = true; }
+  const scB = zoom ? scaleFor(Math.max(Math.abs(gx0), Math.abs(gx1))) : scA;
+  const fA = dn => phaseFromOPD(OPD.singlePassIndex(c.L, dn), c.lam);
+  const fB = dn => { const p = fA(dn); return s.analyzer === 'parallel' ? Math.cos(p / 2) ** 2 : Math.sin(p / 2) ** 2; };
+  const nWaves = c.navg * c.L / c.lam;
+  return (
+    <>
+      <div className="work">
+        <div className="col">
+          <Panel title="Parameter controls" right={<ResetBtn onClick={() => set(T2_DEFAULT)} />}>
+            <div className="ctl-group"><span className="lbl">입력 방식</span>
+              <Seg label="입력 방식" value={s.mode} onChange={up('mode')} options={[{ v: 'xy', l: 'nₓ, nᵧ 입력' }, { v: 'avg', l: 'n_avg, Δn 입력' }]} />
+            </div>
+            <Slider id="t2-lam" label="파장 λ" value={s.lambda_nm} onChange={up('lambda_nm')} min={400} max={1000} step={0.1} dec={1} unit="nm" />
+            <Slider id="t2-L" label="결정 두께 L" value={s.L_mm} onChange={up('L_mm')} min={0.01} max={10} step={0.001} dec={3} unit="mm" hardMin={0.001} />
+            {s.mode === 'xy' ? <>
+              <Slider id="t2-nx" label="nₓ (x 편광)" value={s.nx} onChange={up('nx')} min={1.3} max={4} step={0.00001} dec={5} unit="" hardMin={1} hardMax={5} />
+              <Slider id="t2-ny" label="nᵧ (y 편광)" value={s.ny} onChange={up('ny')} min={1.3} max={4} step={0.00001} dec={5} unit="" hardMin={1} hardMax={5} />
+            </> : <>
+              <Slider id="t2-navg" label="n_avg = (nₓ+nᵧ)/2" value={c.navg} onChange={setAvg} min={1.3} max={4} step={0.0001} dec={5} unit="" hardMin={1} hardMax={5} />
+              <Slider id="t2-dn" label="Δn = nₓ − nᵧ" value={c.dn} onChange={setDn} min={-10} max={10} step={0.001} scale={1e-3} dec={4} unit="×10⁻³" hardMin={-300} hardMax={300} />
+            </>}
+            <div className="ctl-group"><span className="lbl">Retarder 바로 설정 (n_avg 유지, zero-order)</span>
+              <div className="btnrow">
+                <button type="button" className="btn sm" onClick={() => setRetard(0.25)}>λ/4</button>
+                <button type="button" className="btn sm" onClick={() => setRetard(0.5)}>λ/2</button>
+                <button type="button" className="btn sm" onClick={() => setRetard(1)}>λ</button>
+              </div>
+            </div>
+            <div className="ctl-group"><span className="lbl">결정 예시 (x ∥ 광학축, λ = 633 nm 값)</span>
+              <div className="btnrow">
+                {T2_PRESETS.map(p => <button key={p.name} type="button" className="btn sm" title={p.note || ''} onClick={() => set(q => ({ ...q, nx: p.nx, ny: p.ny, lambda_nm: 632.8 }))}>{p.name}</button>)}
+              </div>
+            </div>
+            <div className="ctl-group"><span className="lbl">검광자 (편광자는 x축에서 45°)</span>
+              <Seg label="검광자" value={s.analyzer} onChange={up('analyzer')} options={[{ v: 'crossed', l: '직교 (⊥)' }, { v: 'parallel', l: '평행 (∥)' }]} />
+            </div>
+          </Panel>
+        </div>
+
+        <div className="col">
+          <Panel title="Polarization components in the crystal" right={<button type="button" className="btn sm" onClick={() => setPlay(v => !v)}>{play ? '■ 정지' : '▶ 재생'}</button>}>
+            <div className="formula">
+              <span className="eq key">OPD = (<i>n</i><sub>x</sub> − <i>n</i><sub>y</sub>)<i>L</i> = Δ<i>n L</i></span>
+              <span className="eq">Δ<i>φ</i> = <Fr n="2π" d={<i>λ</i>} />·OPD = <Fr n={<>2π<i>L</i>Δ<i>n</i></>} d={<i>λ</i>} /></span>
+              <span className="eq">Δ<i>n</i> = <Fr n={<><i>λ</i>Δ<i>φ</i></>} d={<>2π<i>L</i></>} /></span>
+            </div>
+            <div className="legend"><span><i style={{ background: 'var(--plot)' }} />Eₓ (굴절률 nₓ)</span><span><i style={{ background: 'var(--plot-2)' }} />Eᵧ (굴절률 nᵧ)</span></div>
+            <PolWaves dphi={c.dphi} playing={play} dn={c.dn} />
+            <div className="viz-cap">
+              출사면 상대 위상 Δφ = <b>{fnum(c.dphi, 4)} rad</b> ≡ <b>{fnum(c.md, 4)} rad</b> (mod 2π) → <b>{c.pol}</b>.
+              {c.dn > 0 ? ' nₓ > nᵧ: x 성분의 위상속도 c/nₓ가 더 느려 위상이 뒤처진다.' : c.dn < 0 ? ' nᵧ > nₓ: y 성분이 더 느리다.' : ' nₓ = nᵧ: 두 성분이 같은 속도로 진행한다.'}
+            </div>
+            <Simplified>
+              파동은 개략도이다. 실제 결정 안에는 약 {fnum(nWaves, 3)}개의 파장이 들어 있어 그릴 수 없으므로, 두 성분의 <i>상대</i> 위상이 결정 두께에 비례해 누적되는 모습만 표시했다.
+              흡수, 표면 반사, 광학축이 기울어진 경우의 유효 굴절률은 무시했다.
+            </Simplified>
+          </Panel>
+        </div>
+
+        <div className="col col-vals">
+          <Panel title="Calculated values">
+            <Vals rows={[
+              { k: 'nₓ', v: fix(s.nx, 5) },
+              { k: 'nᵧ', v: fix(s.ny, 5) },
+              { k: 'Δn = nₓ − nᵧ', v: sci(c.dn, 4), hl: true },
+              { k: 'OPD = ΔnL', v: fLen(c.opd), hl: true },
+              { k: 'Δφ', v: `${fnum(c.dphi, 4)} rad`, hl: true },
+              { k: 'Δφ / 2π', v: `${fnum(c.dphi / TAU, 4)} cycle` },
+              { k: 'Retardation [rad]', v: `${fnum(c.dphi, 4)} rad` },
+              { k: 'Retardation [deg]', v: `${fnum(c.dphi * 180 / PI, 5)}°` },
+              { k: 'Retardation [λ]', sub: 'OPD / λ', v: `${fnum(c.N, 4)} λ` },
+              { k: '유효 retardation', sub: `차수 m = ${c.order}, 소수부`, v: `${fix(c.fr, 3)} λ` },
+              { k: '해당 소자', v: c.plate },
+              { k: s.analyzer === 'parallel' ? 'I/I₀ = cos²(Δφ/2)' : 'I/I₀ = sin²(Δφ/2)', sub: '편광자 45°, 검광자 ' + (s.analyzer === 'parallel' ? '평행' : '직교'), v: fix(c.I, 4) },
+            ]} />
+            <Calc lines={[
+              ['OPD', '= (nₓ − nᵧ)L'],
+              ['', `= (${fix(s.nx, 5)} − ${fix(s.ny, 5)}) × (${fLen(c.L)})`],
+              ['', `= (${sci(c.dn, 4)})(${fLen(c.L)}) = ${fLen(c.opd)}`, true],
+              null,
+              ['Δφ', '= (2π/λ)·OPD = 2πLΔn / λ'],
+              ['', `= 2π(${fLen(c.L)})(${sci(c.dn, 4)}) / (${fLen(c.lam)})`],
+              ['', `= ${fnum(c.dphi, 4)} rad = ${fnum(c.dphi * 180 / PI, 5)}°`, true],
+              null,
+              ['Δn', '= λΔφ / (2πL)  (역산 확인)'],
+              ['', `= (${fLen(c.lam)})(${fnum(c.dphi, 4)}) / (2π·${fLen(c.L)}) = ${sci(c.lam * c.dphi / (TAU * c.L), 4)}`],
+            ]} />
+            <div className="calc">
+              <div className="calc-t">Retardation 기준표</div>
+              <div className="calc-g">
+                <span className="calc-l">Δφ = π/2</span><span className="calc-r">→ λ/4 · 선형 → 원형 편광</span>
+                <span className="calc-l">Δφ = π</span><span className="calc-r">→ λ/2 · 편광 방향 대칭 회전</span>
+                <span className="calc-l">Δφ = 2π</span><span className="calc-r">→ λ · 원래 편광 상태</span>
+              </div>
+            </div>
+          </Panel>
+        </div>
+      </div>
+
+      <div className="graphs">
+        <Plot title="Graph A · 위상차 Δφ vs Δn" f={fA} x0={-a} x1={a} xScale={scA.s} samples={200}
+          xLabel={`Δn = nₓ − nᵧ${scA.lbl}`} yLabel="Δφ (rad)" cur={{ x: c.dn, y: c.dphi }}
+          readout={`Δn = ${sci(c.dn, 3)} → Δφ = ${fnum(c.dphi, 4)} rad`} yFmt={v => `${fnum(v, 4)} rad`} xFmt={v => `Δn=${sci(v, 3)}`} />
+        <Plot title={`Graph B · 투과 세기 vs Δn (검광자 ${s.analyzer === 'parallel' ? '∥' : '⊥'})`} f={fB} x0={gx0} x1={gx1} xScale={scB.s} samples={2400}
+          yDomain={[0, 1.05]} xLabel={`Δn = nₓ − nᵧ${scB.lbl}`} yLabel="I / I₀" cur={{ x: c.dn, y: c.I }}
+          readout={`I/I₀ = ${fix(c.I, 4)}`} yFmt={v => `I/I0=${fix(v, 3)}`} xFmt={v => `Δn=${sci(v, 4)}`}
+          note={zoom ? `무늬가 너무 조밀해 현재 Δn 주변 ±6주기(±${sci(6 * c.lam / c.L, 2)})만 확대 표시` : `한 주기 = Δn 변화 λ/L = ${sci(c.lam / c.L, 3)}`} />
+      </div>
+
+      <Interp>
+        <div>
+          <p>이방성 결정에서 굴절률은 스칼라가 아니라 유전율 텐서 <span className="m">ε<sub>ij</sub></span>로 결정된다. 주축 좌표계에서 x, y 방향 편광은 각각 굴절률 nₓ, nᵧ를 겪고 위상속도 c/nₓ, c/nᵧ로 진행한다. 같은 두께 <i>L</i>을 지나도 광경로가 nₓL과 nᵧL로 달라서, 두 편광 성분 사이에 OPD = ΔnL의 광경로차가 생긴다.</p>
+          <p>이 탭은 한 번 통과(단일 통과)를 다루므로 factor 2가 없다. 결정을 Michelson 팔에 넣어 왕복시키면 OPD = 2ΔnL이 된다. 두 성분을 45° 검광자로 다시 겹치면 서로 간섭하므로, 위상차가 편광 상태와 투과 세기로 바뀐다. 이것이 편광 간섭계와 wave plate의 원리이다.</p>
+        </div>
+        <div>
+          <p><b>결정 대칭성과의 연결.</b> 결정의 굴절률은 유전율 텐서와 관련되고, 결정 대칭성에 따라 방향 의존성이 나타날 수 있다. 그러나 이상적인 cubic crystal(Si, diamond, GaAs 등)은 선형 광학 영역에서 유전율 텐서가 스칼라에 비례하므로 광학적으로 등방적이다. [100], [110], [111] 방향만 바꾼다고 큰 복굴절이 생기지 않는다.</p>
+          <p>실제 반도체에서는 <b>strain·stress</b>(광탄성 효과), <b>결정 결함</b>과 전위 주변 응력장, <b>전기장</b>(전기광학 효과), <b>불균일한 carrier 분포</b> 등이 대칭성을 깨면서 복굴절이 생긴다. 이런 작은 Δn(10⁻⁶–10⁻⁴)을 편광 간섭으로 재는 것이 wafer 응력 측정(photoelasticity, 적외선 편광 검사)의 원리이다.</p>
+        </div>
+      </Interp>
+    </>
+  );
+}
+
+/* ================================================================
+   TAB 3A — wafer surface / warpage (reflection: OPD = 2Δh)
+   ================================================================ */
+const W_DEFAULT = { lambda_nm: 632.8, dh_um: 0, shape: 'bow', A_um: 1.0, tilt_um: 0 };
+const WAFER_R_MM = 150;
+function waferShape(s) {
+  const A = s.A_um * UM, T = s.tilt_um * UM;
+  return (xmm, ymm) => {
+    const u = xmm / WAFER_R_MM, v = ymm / WAFER_R_MM;
+    const tilt = T * u;
+    if (s.shape === 'flat') return tilt;
+    if (s.shape === 'bow') return A * (u * u + v * v) + tilt;
+    return A * (u * u - v * v) + tilt;   // warp: saddle
+  };
+}
+function computeWafer(s) {
+  const lam = s.lambda_nm * NM, dh = s.dh_um * UM;
+  const opd = OPD.reflection(dh), dphi = phaseFromOPD(opd, lam), N = fringeNumber(opd, lam);
+  const h = waferShape(s);
+  let lo = Infinity, hi = -Infinity;
+  for (let i = -30; i <= 30; i++) for (let j = -30; j <= 30; j++) {
+    const x = i * 5, y = j * 5; if (x * x + y * y > WAFER_R_MM ** 2) continue;
+    const v = h(x, y); lo = Math.min(lo, v); hi = Math.max(hi, v);
+  }
+  const pv = hi - lo;
+  return { lam, dh, opd, dphi, N, h, pv, fringesPV: fringeNumber(OPD.reflection(pv), lam), I: 0.5 * (1 + Math.cos(dphi)) };
+}
+function WaferMap({ s, c }) {
+  const wrap = useRef(null), cv = useRef(null);
+  const w = useWidth(wrap, 300);
+  const theme = useThemeKey();
+  const S = clamp(w, 180, 320);
+  useEffect(() => {
+    const el = cv.current; if (!el) return;
+    const { ctx, dpr, W } = setupCanvas(el, S, S);
+    const img = ctx.createImageData(W, W);
+    const [cr, cg, cb] = wlColor(s.lambda_nm).rgb;
+    const R = W / 2 * 0.94, c0 = W / 2;
+    const bgHex = cssVar('--panel') || '#ffffff';
+    const tmp = document.createElement('canvas').getContext('2d'); tmp.fillStyle = bgHex; tmp.fillRect(0, 0, 1, 1);
+    const bg = tmp.getImageData(0, 0, 1, 1).data;
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      const dx = (x - c0) / R, dy = (c0 - y) / R;
+      if (dx * dx + dy * dy > 1) { img.data[i] = bg[0]; img.data[i + 1] = bg[1]; img.data[i + 2] = bg[2]; img.data[i + 3] = 255; continue; }
+      const hh = c.dh + c.h(dx * WAFER_R_MM, dy * WAFER_R_MM);
+      const In = 0.5 * (1 + Math.cos(phaseFromOPD(OPD.reflection(hh), c.lam)));
+      const v = (0.06 + 0.94 * Math.pow(In, 0.85)) * 255;
+      img.data[i] = cr * v; img.data[i + 1] = cg * v; img.data[i + 2] = cb * v; img.data[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const Rc = S / 2 * 0.94, cc = S / 2;
+    ctx.strokeStyle = cssVar('--ink-2'); ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(cc, cc, Rc, 0, TAU); ctx.stroke();
+    ctx.fillStyle = cssVar('--panel'); ctx.beginPath(); ctx.arc(cc, cc + Rc, 5, 0, TAU); ctx.fill();
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(255,255,255,.8)';
+    ctx.beginPath(); ctx.moveTo(cc - Rc, cc); ctx.lineTo(cc + Rc, cc); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cc, cc, 5, 0, TAU); ctx.stroke();
+  }, [s, c.dh, S, theme]);
+  return <div ref={wrap} className="canvas-wrap" style={{ maxWidth: 320 }}><canvas ref={cv} role="img" aria-label="wafer 표면 간섭무늬" /></div>;
+}
+function WaferTab({ s, set }) {
+  const c = computeWafer(s);
+  const up = k => v => set(p => ({ ...p, [k]: v }));
+  const prof = xmm => (c.dh + c.h(xmm, 0)) / UM;
+  const inten = xmm => 0.5 * (1 + Math.cos(phaseFromOPD(OPD.reflection(c.dh + c.h(xmm, 0)), c.lam)));
+  return (
+    <>
+      <div className="work">
+        <div className="col">
+          <Panel title="Parameter controls" right={<ResetBtn onClick={() => set(W_DEFAULT)} />}>
+            <Slider id="w-lam" label="파장 λ" value={s.lambda_nm} onChange={up('lambda_nm')} min={400} max={1000} step={0.1} dec={1} unit="nm" />
+            <Slider id="w-dh" label="표면 높이 변화 Δh" value={s.dh_um} onChange={up('dh_um')} min={-2} max={2} step={0.001} dec={3} unit="μm" note="wafer 전체의 높이(piston) 변화, 중심점에서 측정" />
+            <div className="ctl-group"><span className="lbl">표면 형태</span>
+              <Seg label="표면 형태" value={s.shape} onChange={up('shape')} options={[{ v: 'flat', l: 'Flat' }, { v: 'bow', l: 'Bow' }, { v: 'warp', l: 'Warp' }]} />
+              <div className="ctl-note">{s.shape === 'flat' ? 'h = 0 (+기울기)' : s.shape === 'bow' ? 'h(x,y) = A(r/R)², 오목/볼록 대칭 휨' : 'h(x,y) = A(x² − y²)/R², saddle 형 비대칭 휨'}</div>
+            </div>
+            {s.shape !== 'flat' && <Slider id="w-A" label="형상 진폭 A" value={s.A_um} onChange={up('A_um')} min={-3} max={3} step={0.01} dec={2} unit="μm" />}
+            <Slider id="w-tilt" label="기울기 (가장자리 높이)" value={s.tilt_um} onChange={up('tilt_um')} min={-2} max={2} step={0.01} dec={2} unit="μm" note="기준면에 대한 기울기 → 직선 tilt fringe" />
+          </Panel>
+        </div>
+        <div className="col">
+          <Panel title="Wafer surface → fringe map">
+            <div className="formula">
+              <span className="eq key">OPD = 2Δ<i>h</i></span>
+              <span className="eq">Δ<i>φ</i> = <Fr n="2π" d={<i>λ</i>} />·OPD = <Fr n={<>4πΔ<i>h</i></>} d={<i>λ</i>} /></span>
+              <span className="eq">fringe 1개 = 높이 <Fr n={<i>λ</i>} d="2" /></span>
+            </div>
+            <div className="viz-row">
+              <WaferMap s={s} c={c} />
+              <div className="viz-cap" style={{ flex: '1 1 200px' }}>
+                300 mm wafer의 반사 간섭무늬. 같은 밝기의 선은 <b>높이가 같은 등고선</b>이며, 이웃한 밝은 무늬 사이 높이 차는 λ/2 = <b>{fLen(c.lam / 2)}</b>이다.
+                <br /><br />peak-to-valley 높이 <b>{fLen(c.pv)}</b> → wafer 전체에 약 <b>{fnum(c.fringesPV, 3)}</b>개 fringe.
+                <br /><br />Δh를 움직이면 모든 무늬가 함께 흐른다. 중심(흰 원)에서 fringe가 <b>{fnum(c.N, 3)}</b>개 지나갔다.
+                점선은 아래 그래프의 단면 위치(y = 0).
+              </div>
+            </div>
+            <Simplified>
+              정상 입사, 완전 반사면, 이상적인 평면 기준 거울을 가정했다. 실제 wafer bow/warp는 수십 μm에 이르러 가시광 무늬가 너무 조밀해지므로,
+              장파장·grazing incidence·phase-shifting 간섭법으로 측정하며 무늬만으로는 볼록/오목(부호)을 구분할 수 없다.
+            </Simplified>
+          </Panel>
+        </div>
+        <div className="col col-vals">
+          <Panel title="Calculated values (center)">
+            <Vals rows={[
+              { k: 'Δh', v: fLen(c.dh) },
+              { k: 'OPD = 2Δh', v: fLen(c.opd), hl: true },
+              { k: 'Δφ = 4πΔh/λ', v: `${fnum(c.dphi, 4)} rad`, hl: true },
+              { k: 'Δφ / 2π', v: `${fnum(c.dphi / TAU, 4)} cycle` },
+              { k: 'N = OPD/λ', sub: '중심을 지나간 fringe 수', v: fnum(c.N, 4), hl: true },
+              { k: 'I / I_max (중심)', v: fix(c.I, 4) },
+              { k: 'fringe당 높이 λ/2', v: fLen(c.lam / 2) },
+              { k: 'Peak-to-valley', v: fLen(c.pv) },
+              { k: '전체 fringe 수', sub: '2·PV/λ', v: fnum(c.fringesPV, 4) },
+            ]} />
+            <Calc lines={[
+              ['OPD', '= 2Δh'],
+              ['', `= 2 × (${fLen(c.dh)}) = ${fLen(c.opd)}`, true],
+              null,
+              ['Δφ', '= (2π/λ)·OPD = 4πΔh / λ'],
+              ['', `= 4π(${fLen(c.dh)}) / (${fLen(c.lam)})`],
+              ['', `= ${fnum(c.dphi, 4)} rad`, true],
+              null,
+              ['N', `= OPD/λ = ${fnum(c.N, 4)}`, true],
+            ]} />
+          </Panel>
+        </div>
+      </div>
+      <div className="graphs">
+        <Plot title="표면 높이 단면 h(x, y=0)" f={prof} x0={-WAFER_R_MM} x1={WAFER_R_MM} samples={400}
+          xLabel="wafer 위치 x (mm)" yLabel="높이 h (μm)" cur={{ x: 0, y: s.dh_um }}
+          readout={`h(0) = ${fLen(c.dh)}`} yFmt={v => `h=${fnum(v, 4)} μm`} xFmt={v => `x=${fnum(v, 4)} mm`} />
+        <Plot title="단면을 따른 간섭 세기" f={inten} x0={-WAFER_R_MM} x1={WAFER_R_MM} samples={1600} yDomain={[0, 1.05]}
+          xLabel="wafer 위치 x (mm)" yLabel="I / I_max" cur={{ x: 0, y: c.I }}
+          readout={`I(0)/I_max = ${fix(c.I, 4)}`} yFmt={v => `I=${fix(v, 3)}`} xFmt={v => `x=${fnum(v, 4)} mm`}
+          note="높이가 λ/2 변할 때마다 세기가 한 주기 반복: surface height → OPD → phase → fringe" />
+      </div>
+      <Interp>
+        <div>
+          <p>반사형 간섭계에서 빛은 표면까지 갔다가 돌아오므로 표면이 Δh 높아지면 광경로는 <b>2Δh</b> 짧아진다(부호는 기준 방향의 약속). 따라서 위상은 4πΔh/λ만큼 변하고, 높이가 λ/2 변할 때마다 fringe 하나가 지나간다. He-Ne 632.8 nm에서 fringe 하나는 약 316 nm의 높이 차이다.</p>
+        </div>
+        <div>
+          <p>표면 각 점의 높이가 그 점의 위상을 결정하므로, 간섭 이미지 전체는 표면의 <b>등고선 지도</b>가 된다. bow는 동심원, warp(saddle)는 쌍곡선, 기울기는 평행 직선 무늬를 만든다. 무늬 간격이 좁은 곳은 기울기가 큰 곳이다. phase-shifting 기법으로 fringe의 1/100 이하까지 보간하면 nm 수준의 평탄도를 측정할 수 있다.</p>
+        </div>
+      </Interp>
+    </>
+  );
+}
+
+/* ================================================================
+   TAB 3B — thin film (air | film | substrate), normal incidence
+   ================================================================ */
+const FILM_MATS = { SiO2: { l: 'SiO₂', n: 1.457 }, SiN: { l: 'SiNₓ', n: 2.0 }, PR: { l: 'Photoresist', n: 1.64 } };
+const SUBS = { Si: { l: 'Si', n: 3.882 }, GaAs: { l: 'GaAs', n: 3.856 }, FS: { l: 'Fused silica', n: 1.457 } };
+const F_DEFAULT = { lambda_nm: 632.8, d_nm: 100, mat: 'SiO2', n0: 1.0, n1: 1.457, sub: 'Si', n2: 3.882 };
+function filmR(n0, n1, n2, d, lam) {
+  const r01 = (n0 - n1) / (n0 + n1), r12 = (n1 - n2) / (n1 + n2);
+  const delta = phaseFromOPD(OPD.filmRoundTrip(n1, d), lam);   // = 4π n1 d / λ
+  const c = Math.cos(delta), s = Math.sin(delta);
+  const nr = r01 + r12 * c, ni = -r12 * s, dr = 1 + r01 * r12 * c, di = -r01 * r12 * s;
+  return (nr * nr + ni * ni) / (dr * dr + di * di);
+}
+const gl = (x, mu, s1, s2) => { const t = (x - mu) / (x < mu ? s1 : s2); return Math.exp(-0.5 * t * t); };
+const cmf = l => [
+  1.056 * gl(l, 599.8, 37.9, 31.0) + 0.362 * gl(l, 442.0, 16.0, 26.7) - 0.065 * gl(l, 501.1, 20.4, 26.2),
+  0.821 * gl(l, 568.8, 46.9, 40.5) + 0.286 * gl(l, 530.9, 16.3, 31.1),
+  1.217 * gl(l, 437.0, 11.8, 36.0) + 0.681 * gl(l, 459.0, 26.0, 13.8)];
+function filmColor(Rfn) {
+  let X = 0, Y = 0, Z = 0, Xw = 0, Yw = 0, Zw = 0;
+  for (let l = 380; l <= 780; l += 5) { const [x, y, z] = cmf(l); const r = Rfn(l * NM); X += r * x; Y += r * y; Z += r * z; Xw += x; Yw += y; Zw += z; }
+  const lin = (X, Y, Z) => [3.2406 * X - 1.5372 * Y - 0.4986 * Z, -0.9689 * X + 1.8758 * Y + 0.0415 * Z, 0.0557 * X - 0.2040 * Y + 1.0570 * Z];
+  const cc = lin(X, Y, Z), ww = lin(Xw, Yw, Zw);
+  const rgb = cc.map((v, i) => Math.max(0, v / ww[i]));
+  const mx = Math.max(...rgb, 1e-6), k = 0.92 / mx;
+  const enc = v => { v = clamp(v * k, 0, 1); return Math.round(255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055)); };
+  return { css: `rgb(${rgb.map(enc).join(',')})`, Y: Y / Yw };
+}
+function computeFilm(s) {
+  const lam = s.lambda_nm * NM, d = s.d_nm * NM;
+  const opd = OPD.filmRoundTrip(s.n1, d), dphi = phaseFromOPD(opd, lam), N = fringeNumber(opd, lam);
+  const r01 = (s.n0 - s.n1) / (s.n0 + s.n1), r12 = (s.n1 - s.n2) / (s.n1 + s.n2);
+  const R = filmR(s.n0, s.n1, s.n2, d, lam);
+  const Reven = ((r01 + r12) / (1 + r01 * r12)) ** 2, Rodd = ((r01 - r12) / (1 - r01 * r12)) ** 2;
+  const period = lam / (2 * s.n1);
+  const col = filmColor(l => filmR(s.n0, s.n1, s.n2, d, l));
+  return { lam, d, opd, dphi, N, r01, r12, R, Reven, Rodd, period, col, Rbare: ((s.n0 - s.n2) / (s.n0 + s.n2)) ** 2 };
+}
+function FilmStack({ s, c }) {
+  const hf = 16 + 84 * clamp(s.d_nm / 2000, 0, 1);
+  const y1 = 72, y2 = y1 + hf;
+  const beam = wlColor(s.lambda_nm).css;
+  const ph = r => r < 0 ? 'π 위상 반전' : '위상 반전 없음';
+  return (
+    <svg viewBox="0 0 380 230" width="100%" style={{ maxWidth: 460, display: 'block' }} role="img" aria-label="박막 단면 구조와 반사 광선">
+      <rect x="0" y="0" width="380" height={y1} fill="var(--plot-bg)" />
+      <rect x="0" y={y1} width="380" height={hf} fill="var(--plot)" fillOpacity=".18" stroke="var(--plot)" strokeOpacity=".5" />
+      <rect x="0" y={y2} width="380" height={230 - y2} fill="var(--ink-2)" fillOpacity=".22" />
+      <text x="8" y="16" fontSize="11" fill="var(--ink-2)">n₀ = {fix(s.n0, 3)} (입사 매질)</text>
+      <text x="8" y={y1 + hf / 2 + 4} fontSize="11" fill="var(--ink)">{FILM_MATS[s.mat] ? FILM_MATS[s.mat].l : '박막'} n₁ = {fix(s.n1, 3)}, d = {fix(s.d_nm, 0)} nm</text>
+      <text x="8" y={Math.min(222, y2 + 20)} fontSize="11" fill="var(--ink)">기판 n₂ = {fix(s.n2, 3)}</text>
+      <line x1="90" y1="18" x2="140" y2={y1} stroke={beam} strokeWidth="2.2" />
+      <line x1="140" y1={y1} x2="190" y2="18" stroke={beam} strokeWidth="2" />
+      <line x1="140" y1={y1} x2="160" y2={y2} stroke={beam} strokeWidth="2" strokeOpacity=".8" />
+      <line x1="160" y1={y2} x2="180" y2={y1} stroke={beam} strokeWidth="2" strokeOpacity=".8" />
+      <line x1="180" y1={y1} x2="230" y2="18" stroke={beam} strokeWidth="2" strokeDasharray="5 3" />
+      <text x="194" y="30" fontSize="10.5" fill="var(--ink-2)">① r₀₁ = {fix(c.r01, 3)} ({ph(c.r01)})</text>
+      <text x="236" y="48" fontSize="10.5" fill="var(--ink-2)">② r₁₂ = {fix(c.r12, 3)} ({ph(c.r12)})</text>
+      <text x="236" y="62" fontSize="10.5" fill="var(--laser)">②의 추가 경로 ≈ 2n₁d = {fLen(c.opd)}</text>
+      <rect x="300" y={Math.min(y2 + 6, 168)} width="70" height="46" rx="3" fill={c.col.css} stroke="var(--line)" />
+    </svg>
+  );
+}
+function FilmTab({ s, set }) {
+  const c = computeFilm(s);
+  const up = k => v => set(p => ({ ...p, [k]: v }));
+  const Rd = dnm => filmR(s.n0, s.n1, s.n2, dnm * NM, c.lam);
+  const Rl = lnm => filmR(s.n0, s.n1, s.n2, c.d, lnm * NM);
+  const minAt = c.Reven < c.Rodd ? 'even' : 'odd';
+  return (
+    <>
+      <div className="work">
+        <div className="col">
+          <Panel title="Parameter controls" right={<ResetBtn onClick={() => set(F_DEFAULT)} />}>
+            <div className="ctl-group"><span className="lbl">박막 재료 (n @ 633 nm)</span>
+              <Seg label="박막 재료" value={s.mat} onChange={v => set(p => ({ ...p, mat: v, n1: FILM_MATS[v].n }))}
+                options={Object.entries(FILM_MATS).map(([k, v]) => ({ v: k, l: v.l }))} />
+            </div>
+            <div className="ctl-group"><span className="lbl">기판</span>
+              <Seg label="기판" value={s.sub} onChange={v => set(p => ({ ...p, sub: v, n2: SUBS[v].n }))}
+                options={Object.entries(SUBS).map(([k, v]) => ({ v: k, l: v.l }))} />
+            </div>
+            <Slider id="f-lam" label="파장 λ" value={s.lambda_nm} onChange={up('lambda_nm')} min={400} max={1000} step={0.1} dec={1} unit="nm" />
+            <Slider id="f-d" label="막 두께 d" value={s.d_nm} onChange={up('d_nm')} min={0} max={2000} step={1} dec={0} unit="nm" />
+            <Slider id="f-n1" label="박막 굴절률 n₁" value={s.n1} onChange={v => set(p => ({ ...p, n1: v, mat: 'custom' }))} min={1} max={3} step={0.001} dec={3} unit="" />
+            <Slider id="f-n2" label="기판 굴절률 n₂" value={s.n2} onChange={v => set(p => ({ ...p, n2: v, sub: 'custom' }))} min={1} max={4.5} step={0.001} dec={3} unit="" />
+            <Slider id="f-n0" label="입사 매질 n₀" value={s.n0} onChange={up('n0')} min={1} max={1.5} step={0.001} dec={3} unit="" note="공기 1.000, 물 1.333" />
+          </Panel>
+        </div>
+        <div className="col">
+          <Panel title="Air | film | substrate">
+            <div className="formula">
+              <span className="eq">OPD ≈ 2<i>n</i><sub>1</sub><i>d</i></span>
+              <span className="eq key">δ = <Fr n="2π" d={<i>λ</i>} />·OPD = <Fr n={<>4π<i>n</i><sub>1</sub><i>d</i></>} d={<i>λ</i>} /></span>
+              <span className="eq"><i>r</i> = <Fr n={<><i>r</i><sub>01</sub> + <i>r</i><sub>12</sub><i>e</i><sup>−iδ</sup></>} d={<>1 + <i>r</i><sub>01</sub><i>r</i><sub>12</sub><i>e</i><sup>−iδ</sup></>} />, &nbsp;<i>R</i> = |<i>r</i>|²</span>
+            </div>
+            <FilmStack s={s} c={c} />
+            <div className="viz-cap">
+              오른쪽 색 견본: 이 막을 백색광 아래 정상 입사로 볼 때의 근사 색 (밝기는 표시용으로 정규화, 가시광 평균 반사율 ≈ <b>{fix(c.col.Y * 100, 1)}%</b>).
+              SiO₂/Si에서 두께에 따라 색이 바뀌는 것이 공정 현장에서 산화막 두께를 눈으로 가늠하는 color chart의 원리이다.
+            </div>
+            <Simplified>
+              정상 입사, 흡수 없는 실수 굴절률, 분산 없음(모든 λ에서 같은 n), 매끄러운 계면을 가정했다. 실제 Si는 633 nm에서 k ≈ 0.02의 흡수가 있고 n이 파장에 따라 크게 변한다.
+              단순 모델 OPD ≈ 2n₁d는 위상만 알려주며, 계면 반사의 π 위상 변화와 Fresnel 계수의 크기(다중 반사)는 아래 Fresnel 모델에 포함되어 있다.
+            </Simplified>
+          </Panel>
+        </div>
+        <div className="col col-vals">
+          <Panel title="Calculated values">
+            <Vals rows={[
+              { k: 'd', v: fLen(c.d) },
+              { k: 'OPD ≈ 2n₁d', sub: 'Simplified model', v: fLen(c.opd), hl: true },
+              { k: 'δ = 4πn₁d/λ', v: `${fnum(c.dphi, 4)} rad`, hl: true },
+              { k: 'N = OPD/λ', v: fnum(c.N, 4) },
+              { k: 'r₀₁ = (n₀−n₁)/(n₀+n₁)', v: fix(c.r01, 4) },
+              { k: 'r₁₂ = (n₁−n₂)/(n₁+n₂)', v: fix(c.r12, 4) },
+              { k: 'Reflectance R', sub: 'Fresnel 다중반사 모델', v: `${fix(c.R * 100, 2)} %`, hl: true },
+              { k: '막 없는 기판 R', v: `${fix(c.Rbare * 100, 2)} %` },
+              { k: 'R 주기 (두께)', sub: 'Δd = λ/(2n₁)', v: fLen(c.period) },
+              { k: 'R 범위', v: `${fix(Math.min(c.Reven, c.Rodd) * 100, 2)} – ${fix(Math.max(c.Reven, c.Rodd) * 100, 2)} %` },
+            ]} />
+            <Calc lines={[
+              ['δ', '= (2π/λ)·2n₁d = 4πn₁d/λ'],
+              ['', `= 4π(${fix(s.n1, 3)})(${fLen(c.d)}) / (${fLen(c.lam)})`],
+              ['', `= ${fnum(c.dphi, 4)} rad`, true],
+              null,
+              ['R', `= |r|² = ${fix(c.R, 4)}`, true],
+              null,
+              ['R_min', minAt === 'even' ? ': 2n₁d = mλ  (δ = 2mπ)' : ': 2n₁d = (m+½)λ  (δ = (2m+1)π)'],
+              ['', c.r01 * c.r12 > 0 ? '두 계면 반사의 부호가 같아 π 반전이 상쇄됨' : '한 계면에서만 π 반전 → 조건이 반주기 이동'],
+            ]} />
+          </Panel>
+        </div>
+      </div>
+      <div className="graphs">
+        <Plot title="Reflectance vs 막 두께" f={Rd} x0={0} x1={2000} samples={1000} yDomain={[0, Math.max(0.05, Math.max(c.Reven, c.Rodd) * 1.12)]}
+          xLabel="막 두께 d (nm)" yLabel="반사율 R" cur={{ x: s.d_nm, y: c.R }}
+          readout={`d = ${fix(s.d_nm, 0)} nm → R = ${fix(c.R * 100, 2)} %`} yFmt={v => `R=${fix(v * 100, 2)}%`} xFmt={v => `d=${fix(v, 0)} nm`}
+          note={`두께가 λ/(2n₁) = ${fLen(c.period)} 변할 때마다 R이 한 주기 반복`} />
+        <Plot title="Reflectance 스펙트럼 (현재 두께)" f={Rl} x0={400} x1={1000} samples={800} yDomain={[0, Math.max(0.05, Math.max(c.Reven, c.Rodd) * 1.12)]}
+          xLabel="파장 λ (nm)" yLabel="반사율 R" cur={{ x: s.lambda_nm, y: c.R }}
+          readout={`λ = ${fix(s.lambda_nm, 1)} nm → R = ${fix(c.R * 100, 2)} %`} yFmt={v => `R=${fix(v * 100, 2)}%`} xFmt={v => `λ=${fix(v, 1)} nm`}
+          note="분광 반사계(spectroscopic reflectometry)는 이 곡선을 맞춰 막 두께를 구한다" />
+      </div>
+      <Interp>
+        <div>
+          <p>박막 윗면에서 반사된 빛(①)과 아랫면에서 반사되어 나온 빛(②)이 간섭한다. ②는 막 안을 왕복하므로 추가 광경로가 약 2n₁d이고, 위상 δ = 4πn₁d/λ를 더 얻는다. 막이 두꺼워지면 δ가 선형으로 증가하므로 반사율이 λ/(2n₁)의 두께 주기로 진동한다.</p>
+          <p>이것은 Michelson의 거울 변위와 같은 구조이다. 막 안의 왕복 광경로가 두께의 두 배라는 점(factor 2)과, 막 안에서는 파장이 λ/n₁로 짧아진다는 점(factor n₁)이 함께 들어간다.</p>
+        </div>
+        <div>
+          <p>그러나 위상만으로는 밝음·어둠이 결정되지 않는다. 낮은 굴절률에서 높은 굴절률 계면으로 반사될 때 반사계수가 음수가 되어 π 위상이 더해진다. SiO₂/Si처럼 두 계면 모두 π 반전이면 서로 상쇄되지만, 한 계면에서만 반전되면 극대·극소 조건이 반 주기 이동한다.</p>
+          <p>또 반사계수의 크기가 두 빔의 세기 비를 정하므로 대비(fringe contrast)가 달라지고, 막 안의 다중 반사가 곡선 모양을 바꾼다. 위의 Fresnel 식은 이 효과를 모두 포함한 정상 입사 결과이다. 실제 ellipsometry는 여기에 경사 입사, 편광(s/p), 흡수(복소 굴절률)까지 넣어 분석한다.</p>
+        </div>
+      </Interp>
+    </>
+  );
+}
+
+/* ================================================================
+   TAB 3C — MEMS displacement (reflection: OPD = 2Δd)
+   ================================================================ */
+const M_DEFAULT = { mode: 'static', lambda_nm: 632.8, dd_um: 0.1, A_nm: 150, f_hz: 1000, d0_nm: 79.1 };
+function MemsFigure({ disp_m, In, lamNm }) {
+  const px = clamp(disp_m / UM, -1.2, 1.2) * 38;
+  const beam = wlColor(lamNm).css;
+  const yc = 128 + px;
+  return (
+    <svg viewBox="0 0 380 230" width="100%" style={{ maxWidth: 460, display: 'block' }} role="img" aria-label="MEMS membrane 변위 개략도">
+      <rect x="150" y="6" width="80" height="26" rx="3" fill="var(--panel-2)" stroke="var(--ink-2)" />
+      <text x="190" y="23" textAnchor="middle" fontSize="11" fill="var(--ink)">Laser + 간섭계</text>
+      <line x1="182" y1="32" x2="182" y2={yc - 2} stroke={beam} strokeWidth="2.2" />
+      <line x1="198" y1={yc - 2} x2="300" y2="40" stroke={beam} strokeWidth="2" strokeOpacity=".85" />
+      <rect x="296" y="18" width="70" height="26" rx="3" fill={beam} fillOpacity={0.08 + 0.85 * In} stroke="var(--ink-2)" />
+      <text x="331" y="58" textAnchor="middle" fontSize="10.5" fill="var(--ink-2)">검출기 I = {fix(In, 2)}</text>
+      <rect x="20" y="186" width="340" height="30" fill="var(--ink-2)" fillOpacity=".3" />
+      <rect x="40" y="128" width="50" height="58" fill="var(--ink-2)" fillOpacity=".3" />
+      <rect x="290" y="128" width="50" height="58" fill="var(--ink-2)" fillOpacity=".3" />
+      <line x1="90" y1="128" x2="290" y2="128" stroke="var(--muted)" strokeDasharray="3 4" />
+      <path d={`M90,128 Q190,${128 + 2 * px} 290,128`} fill="none" stroke="var(--laser)" strokeWidth="4" />
+      <text x="190" y="206" textAnchor="middle" fontSize="11" fill="var(--ink)">cavity / 기판</text>
+      <text x="46" y="120" fontSize="10.5" fill="var(--ink-2)">anchor</text>
+      <line x1="248" y1="128" x2="248" y2={128 + px} stroke="var(--ink)" strokeWidth="1.3" />
+      <text x="254" y={128 + px / 2 + 4} fontSize="11" fill="var(--ink)" fontFamily="var(--f-mono)">Δd = {fLen(disp_m, 3)}</text>
+      <text x="20" y="226" fontSize="10" fill="var(--muted)">세로 방향 크게 과장 표시 · +Δd = 검출기에서 멀어지는 방향</text>
+    </svg>
+  );
+}
+function MemsTab({ s, set }) {
+  const up = k => v => set(p => ({ ...p, [k]: v }));
+  const lam = s.lambda_nm * NM;
+  const [play, setPlay] = useState(!REDUCED);
+  const [cyc, setCyc] = useState(0.18);   // displayed time, in periods (0..2)
+  const vib = s.mode === 'vib';
+  useRaf(vib && play, dt => setCyc(c => (c + dt * 0.5) % 2));
+  const T = 1 / s.f_hz, A = s.A_nm * NM, d0 = s.d0_nm * NM;
+  const tNow = cyc * T;
+  const dOf = t => A * Math.sin(TAU * s.f_hz * t);
+  const IOf = t => 0.5 * (1 + Math.cos(phaseFromOPD(OPD.reflection(d0 + dOf(t)), lam)));
+  const disp = vib ? dOf(tNow) : s.dd_um * UM;
+  const opd = OPD.reflection(disp), dphi = phaseFromOPD(opd, lam), N = fringeNumber(opd, lam);
+  const In = vib ? IOf(tNow) : 0.5 * (1 + Math.cos(dphi));
+  const tu = T >= 1e-3 ? { s: 1e-3, u: 'ms' } : { s: 1e-6, u: 'μs' };
+  const phAmp = phaseFromOPD(OPD.reflection(A), lam);
+  const quad = lam / 8;
+  return (
+    <>
+      <div className="work">
+        <div className="col">
+          <Panel title="Parameter controls" right={<ResetBtn onClick={() => { set(M_DEFAULT); setCyc(0.18); }} />}>
+            <div className="ctl-group"><span className="lbl">모드</span>
+              <Seg label="모드" value={s.mode} onChange={up('mode')} options={[{ v: 'static', l: '정적 변위 Δd' }, { v: 'vib', l: '진동 d(t) = A sin 2πft' }]} />
+            </div>
+            <Slider id="m-lam" label="파장 λ" value={s.lambda_nm} onChange={up('lambda_nm')} min={400} max={1000} step={0.1} dec={1} unit="nm" />
+            {!vib ? (
+              <Slider id="m-dd" label="변위 Δd" value={s.dd_um} onChange={up('dd_um')} min={-1} max={1} step={0.001} dec={3} unit="μm" />
+            ) : <>
+              <Slider id="m-A" label="진폭 A" value={s.A_nm} onChange={up('A_nm')} min={0} max={1000} step={1} dec={0} unit="nm" />
+              <Slider id="m-f" label="주파수 f" value={s.f_hz} onChange={up('f_hz')} min={1} max={10000} step={1} dec={0} unit="Hz" />
+              <Slider id="m-d0" label="정지 위치 (bias) d₀" value={s.d0_nm} onChange={up('d0_nm')} min={0} max={500} step={0.1} dec={1} unit="nm"
+                note={`quadrature 점 d₀ = λ/8 = ${fix(quad / NM, 1)} nm 에서 작은 진동에 대한 응답이 가장 크고 선형적`} />
+              <div className="btnrow">
+                <button type="button" className="btn sm" onClick={() => set(p => ({ ...p, d0_nm: p.lambda_nm / 8 }))}>d₀ = λ/8 (quadrature)</button>
+                <button type="button" className="btn sm" onClick={() => set(p => ({ ...p, d0_nm: 0 }))}>d₀ = 0 (밝은 무늬)</button>
+                <button type="button" className={'btn sm' + (play ? ' primary' : '')} onClick={() => setPlay(v => !v)}>{play ? '■ 정지' : '▶ 재생'}</button>
+              </div>
+            </>}
+          </Panel>
+        </div>
+        <div className="col">
+          <Panel title="MEMS membrane · reflected beam">
+            <div className="formula">
+              <span className="eq key">OPD = 2Δ<i>d</i></span>
+              <span className="eq">Δ<i>φ</i> = <Fr n="2π" d={<i>λ</i>} />·OPD = <Fr n={<>4πΔ<i>d</i></>} d={<i>λ</i>} /></span>
+              {vib && <span className="eq"><i>I</i>(<i>t</i>) ∝ 1 + cos[<Fr n="4π" d={<i>λ</i>} />(<i>d</i><sub>0</sub> + <i>A</i> sin 2π<i>ft</i>)]</span>}
+            </div>
+            <MemsFigure disp_m={disp} In={In} lamNm={s.lambda_nm} />
+            {vib && <div className="viz-cap">
+              슬로 모션: 화면의 한 주기 = 2 s, 실제 주기 1/f = <b>{fnum(T / tu.s, 4)} {tu.u}</b>.
+              현재 t = <b>{fix(tNow / tu.s, 3)} {tu.u}</b>.
+              위상 변조 진폭 4πA/λ = <b>{fnum(phAmp, 3)} rad</b>, 반주기마다 지나가는 fringe 수 4A/λ = <b>{fnum(4 * A / lam, 3)}</b>.
+            </div>}
+            <Simplified>
+              membrane 중심의 점 변위만 고려한 1차원 모델이다. 실제 측정(laser Doppler vibrometer, fiber interferometer)에서는 membrane의 모드 형상, 빔 크기에 따른 평균화, 반사율 변화, 레이저 위상 잡음과 기계 진동이 신호에 섞인다.
+            </Simplified>
+          </Panel>
+        </div>
+        <div className="col col-vals">
+          <Panel title="Calculated values">
+            <Vals rows={[
+              { k: vib ? 'd(t) 변위' : 'Δd 변위', v: fLen(disp), hl: true },
+              { k: 'OPD = 2Δd', v: fLen(opd), hl: true },
+              { k: 'Δφ = 4πΔd/λ', v: `${fnum(dphi, 4)} rad`, hl: true },
+              { k: 'Δφ / 2π', v: `${fnum(dphi / TAU, 4)} cycle` },
+              { k: 'N = OPD/λ', sub: 'fringe 이동 수', v: fnum(N, 4) },
+              { k: 'I / I_max', v: fix(In, 4) },
+              ...(vib ? [
+                { k: '진폭 A', v: fLen(A) },
+                { k: '주기 T = 1/f', v: `${fnum(T / tu.s, 4)} ${tu.u}` },
+                { k: '위상 변조 진폭', sub: '4πA/λ', v: `${fnum(phAmp, 4)} rad` },
+                { k: 'bias 위상 4πd₀/λ', v: fPi(phaseFromOPD(OPD.reflection(d0), lam)) },
+              ] : []),
+            ]} />
+            <Calc lines={[
+              ['OPD', '= 2Δd'],
+              ['', `= 2 × (${fLen(disp)}) = ${fLen(opd)}`, true],
+              null,
+              ['Δφ', '= (2π/λ)·OPD = 4πΔd / λ'],
+              ['', `= 4π(${fLen(disp)}) / (${fLen(lam)})`],
+              ['', `= ${fnum(dphi, 4)} rad`, true],
+              null,
+              ['N', `= OPD/λ = ${fnum(N, 4)}`, true],
+            ]} />
+          </Panel>
+        </div>
+      </div>
+      <div className="graphs">
+        {vib ? <>
+          <Plot title="변위 d(t)" f={t => dOf(t) / NM} x0={0} x1={2 * T} xScale={tu.s} samples={600}
+            xLabel={`시간 t (${tu.u})`} yLabel="d (nm)" cur={{ x: tNow, y: disp / NM }} yDomain={A > 0 ? [-A / NM * 1.1, A / NM * 1.1] : [-1, 1]}
+            readout={`d = ${fLen(disp, 4)}`} yFmt={v => `d=${fnum(v, 4)} nm`} xFmt={v => `t=${fnum(v / tu.s, 4)} ${tu.u}`} />
+          <Plot title="검출 세기 I(t)" f={IOf} x0={0} x1={2 * T} xScale={tu.s} samples={2000} yDomain={[0, 1.05]}
+            xLabel={`시간 t (${tu.u})`} yLabel="I / I_max" cur={{ x: tNow, y: In }}
+            readout={`I/I_max = ${fix(In, 4)}`} yFmt={v => `I=${fix(v, 3)}`} xFmt={v => `t=${fnum(v / tu.s, 4)} ${tu.u}`}
+            note={A < lam / 8 ? '작은 진폭: I(t)가 거의 사인형 → 진폭은 세기 변화량, 주파수는 I(t)의 주파수로 측정' : '큰 진폭: 한 주기 동안 여러 fringe가 지나감 → fringe를 세어 진폭을 구함'} />
+        </> : <>
+          <Plot title="Graph A · Δφ vs Δd" f={x => phaseFromOPD(OPD.reflection(x * UM), lam)} x0={-1} x1={1} samples={200}
+            xLabel="변위 Δd (μm)" yLabel="Δφ (rad)" cur={{ x: s.dd_um, y: dphi }}
+            readout={`Δd = ${fLen(disp)} → Δφ = ${fnum(dphi, 4)} rad`} yFmt={v => `${fnum(v, 4)} rad`} xFmt={v => `Δd=${fnum(v, 4)} μm`} />
+          <Plot title="Graph B · I/I_max vs Δd" f={x => 0.5 * (1 + Math.cos(phaseFromOPD(OPD.reflection(x * UM), lam)))} x0={-1} x1={1} samples={1600} yDomain={[0, 1.05]}
+            xLabel="변위 Δd (μm)" yLabel="I / I_max" cur={{ x: s.dd_um, y: In }}
+            readout={`I/I_max = ${fix(In, 4)}`} yFmt={v => `I=${fix(v, 3)}`} xFmt={v => `Δd=${fnum(v, 4)} μm`}
+            note={`한 주기 = 변위 λ/2 = ${fLen(lam / 2)}`} />
+        </>}
+      </div>
+      <Interp>
+        <div>
+          <p>MEMS 구조물이 Δd 움직이면 반사된 빛의 경로는 왕복이므로 2Δd 변하고, 위상은 4πΔd/λ만큼 변한다. 변위가 λ/2(632.8 nm에서 316 nm)일 때 검출기 세기가 한 주기를 돈다. 위상 분해능이 1 mrad이면 변위 분해능은 λ·10⁻³/(4π) ≈ 0.05 nm로, 원자 크기보다 작다.</p>
+        </div>
+        <div>
+          <p>진동하는 membrane은 반사광의 <b>위상을 변조</b>하고, 간섭은 이 위상 변조를 <b>세기 변조</b>로 바꾼다. cos 곡선의 기울기가 가장 큰 quadrature 점(d₀ = λ/8)에서 작은 진동은 세기에 선형으로 옮겨진다. d₀ = 0처럼 극대점에 있으면 cos의 평평한 부분이라 응답이 2차가 되어 I(t)가 2f로 진동한다. 진폭이 λ/4보다 크면 여러 fringe가 지나가므로 fringe를 세거나 위상을 풀어(unwrap) 진폭을 구한다.</p>
+        </div>
+      </Interp>
+    </>
+  );
+}
+
+/* ================================================================
+   TAB 3D — effective-index modulation in a Mach–Zehnder arm
+   ================================================================ */
+const D_DEFAULT = { cause: 'thermo', lambda_nm: 1550, L_mm: 1, dneff: 3e-4, hN: 1, hV: 10, hT: 1.667 };
+const CAUSES = {
+  carrier: { l: 'Carrier', title: 'Carrier-induced (plasma dispersion)' },
+  eo: { l: 'Electro-optic', title: 'Electro-optic (Pockels) effect' },
+  thermo: { l: 'Thermo-optic', title: 'Thermo-optic effect' },
+  strain: { l: 'Strain', title: 'Strain-induced (photoelastic) effect' },
+};
+function helperDn(cause, s) {
+  if (cause === 'carrier') { const N = s.hN * 1e17; return -(8.8e-22 * N + 8.5e-18 * Math.pow(N, 0.8)); }
+  if (cause === 'eo') { const E = s.hV / 10e-6; return -0.5 * Math.pow(2.138, 3) * 30.8e-12 * E; }
+  if (cause === 'thermo') return 1.8e-4 * s.hT;
+  return null;
+}
+function MZI({ s, c }) {
+  const beam = wlColor(s.lambda_nm).css;
+  const devOp = 0.12 + 0.6 * clamp(Math.abs(s.dneff) / 1e-3, 0, 1);
+  const r = 34, cx = 0, cy = 0;
+  const ang = -c.dphi;
+  const sx = (1 + Math.cos(ang)) / 2, sy = Math.sin(ang) / 2;
+  return (
+    <div className="viz-row">
+      <svg viewBox="0 0 470 200" width="100%" style={{ maxWidth: 520, flex: '1 1 320px' }} role="img" aria-label="Mach-Zehnder 간섭계 개략도">
+        <path d="M10,100 L80,100 C110,100 110,40 140,40 L330,40 C360,40 360,95 390,95 L460,70" fill="none" stroke={beam} strokeWidth="3" />
+        <path d="M80,100 C110,100 110,160 140,160 L330,160 C360,160 360,105 390,105 L460,130" fill="none" stroke={beam} strokeWidth="3" />
+        <text x="10" y="90" fontSize="11" fill="var(--ink-2)">입력</text>
+        <text x="84" y="124" fontSize="10.5" fill="var(--muted)">3 dB 분배</text>
+        <text x="352" y="124" fontSize="10.5" fill="var(--muted)">2×2 결합</text>
+        <text x="235" y="30" textAnchor="middle" fontSize="11" fill="var(--ink-2)">Reference arm</text>
+        <rect x="170" y="146" width="130" height="28" rx="3" fill="var(--laser)" fillOpacity={devOp} stroke="var(--laser)" />
+        <text x="235" y="164" textAnchor="middle" fontSize="11" fill="var(--ink)">소자: Δn_eff = {sci(s.dneff, 2)}</text>
+        <text x="235" y="192" textAnchor="middle" fontSize="10.5" fill="var(--ink-2)">interaction length L = {fix(s.L_mm, 2)} mm</text>
+        <circle cx="460" cy="70" r="9" fill={beam} fillOpacity={0.05 + 0.95 * c.Ibar} stroke="var(--ink-2)" />
+        <circle cx="460" cy="130" r="9" fill={beam} fillOpacity={0.05 + 0.95 * c.Icross} stroke="var(--ink-2)" />
+        <text x="444" y="54" textAnchor="end" fontSize="10.5" fill="var(--ink)" fontFamily="var(--f-mono)">out1 {fix(c.Ibar, 2)}</text>
+        <text x="444" y="152" textAnchor="end" fontSize="10.5" fill="var(--ink)" fontFamily="var(--f-mono)">out2 {fix(c.Icross, 2)}</text>
+      </svg>
+      <svg viewBox="-60 -60 120 128" width="130" height="138" role="img" aria-label="phasor 합성 도식" style={{ flex: 'none' }}>
+        <circle cx="0" cy="0" r={r} fill="none" stroke="var(--grid)" />
+        <line x1="-50" y1="0" x2="50" y2="0" stroke="var(--grid)" /><line x1="0" y1="-50" x2="0" y2="50" stroke="var(--grid)" />
+        <line x1="0" y1="0" x2={r} y2="0" stroke="var(--plot-2)" strokeWidth="2" /><circle cx={r} cy="0" r="3" fill="var(--plot-2)" />
+        <line x1="0" y1="0" x2={r * Math.cos(ang)} y2={-r * Math.sin(ang)} stroke="var(--plot)" strokeWidth="2" /><circle cx={r * Math.cos(ang)} cy={-r * Math.sin(ang)} r="3" fill="var(--plot)" />
+        <line x1="0" y1="0" x2={r * sx} y2={-r * sy} stroke="var(--laser)" strokeWidth="2.6" /><circle cx={r * sx} cy={-r * sy} r="3.5" fill="var(--laser)" />
+        <text x="0" y="62" textAnchor="middle" fontSize="9" fill="var(--ink-2)">(합)/2 = |cos(Δφ/2)|</text>
+      </svg>
+    </div>
+  );
+}
+function ModTab({ s, set }) {
+  const up = k => v => set(p => ({ ...p, [k]: v }));
+  const lam = s.lambda_nm * NM, L = s.L_mm * MM;
+  const opd = OPD.singlePassIndex(L, s.dneff);
+  const dphi = phaseFromOPD(opd, lam);
+  const N = fringeNumber(opd, lam);
+  const Ibar = Math.cos(dphi / 2) ** 2, Icross = Math.sin(dphi / 2) ** 2;
+  const q = dphi / PI, k = Math.round(q), near = Math.abs(q - k) < 0.015;
+  let badge = null;
+  if (near && k % 2 !== 0) badge = <span className="badge on">{Math.abs(k) === 1 ? (k < 0 ? '−π' : 'π') : `${k}π`} phase shift</span>;
+  else if (near && k !== 0) badge = <span className="badge ok">{k}π · 원래 출력으로 복귀</span>;
+  const hdn = helperDn(s.cause, s);
+  const setHelper = (key, v) => set(p => { const np = { ...p, [key]: v }; const d = helperDn(p.cause, np); return d === null ? np : { ...np, dneff: clamp(d, -1e-3, 1e-3) }; });
+  const clipped = hdn !== null && Math.abs(hdn) > 1e-3;
+  const dnPi = lam / (2 * L);
+  const c = { dphi, Ibar, Icross };
+  return (
+    <>
+      <div className="work">
+        <div className="col">
+          <Panel title="Parameter controls" right={<ResetBtn onClick={() => set(D_DEFAULT)} />}>
+            <div className="ctl-group"><span className="lbl">굴절률 변화의 원인</span>
+              <Seg label="굴절률 변화 원인" value={s.cause} onChange={up('cause')} options={Object.entries(CAUSES).map(([k, v]) => ({ v: k, l: v.l }))} />
+            </div>
+            <Slider id="d-lam" label="파장 λ" value={s.lambda_nm} onChange={up('lambda_nm')} min={400} max={1700} step={0.1} dec={1} unit="nm" note="Si photonics 통신 파장 1550 nm가 기본값" />
+            <Slider id="d-L" label="Interaction length L" value={s.L_mm} onChange={up('L_mm')} min={0.1} max={10} step={0.01} dec={2} unit="mm" />
+            <Slider id="d-dn" label="Δn_eff" value={s.dneff} onChange={up('dneff')} min={-10} max={10} step={0.001} scale={1e-4} dec={3} unit="×10⁻⁴" />
+            <div className="ctl-group">
+              <span className="lbl">물리량으로 구동 (Δn_eff에 바로 반영)</span>
+              {s.cause === 'carrier' && <Slider id="d-hN" label="주입 캐리어 ΔNₑ = ΔNₕ" value={s.hN} onChange={v => setHelper('hN', v)} min={0} max={2.5} step={0.01} dec={2} unit="10¹⁷cm⁻³" />}
+              {s.cause === 'eo' && <Slider id="d-hV" label="인가 전압 V (간격 10 μm)" value={s.hV} onChange={v => setHelper('hV', v)} min={-30} max={30} step={0.1} dec={1} unit="V" />}
+              {s.cause === 'thermo' && <Slider id="d-hT" label="온도 변화 ΔT" value={s.hT} onChange={v => setHelper('hT', v)} min={0} max={5.5} step={0.001} dec={3} unit="K" />}
+              {s.cause === 'strain' && <div className="ctl-note">광탄성 계수는 방향·편광에 따라 달라 단일 식으로 환산하지 않는다. Δn_eff를 직접 조절하라.</div>}
+              {hdn !== null && <div className="ctl-note">환산값 Δn = {sci(hdn, 3)}{clipped ? ' → 범위 ±1×10⁻³로 제한됨' : ''}</div>}
+            </div>
+          </Panel>
+        </div>
+        <div className="col">
+          <Panel title="Mach–Zehnder interferometer">
+            <div className="formula">
+              <span className="eq">OPD = <i>L</i>Δ<i>n</i><sub>eff</sub></span>
+              <span className="eq key">Δ<i>φ</i> = <Fr n="2π" d={<i>λ</i>} />·OPD = <Fr n={<>2π<i>L</i>Δ<i>n</i><sub>eff</sub></>} d={<i>λ</i>} /></span>
+              <span className="eq"><i>I</i><sub>out1</sub> = <i>I</i><sub>0</sub>cos²(Δ<i>φ</i>/2)</span>
+            </div>
+            <div className="bigphase">
+              <span className="val">Δφ = {fnum(q, 4)}π</span>
+              {badge || <span className="badge">π까지 Δn_eff = {sci(dnPi, 3)} 필요</span>}
+            </div>
+            <MZI s={s} c={c} />
+            <div className="legend"><span><i style={{ background: 'var(--plot-2)' }} />reference arm 위상</span><span><i style={{ background: 'var(--plot)' }} />device arm 위상 (−Δφ 회전)</span><span><i style={{ background: 'var(--laser)' }} />합성 진폭 (out1)</span></div>
+            <Simplified>
+              손실 없는 3 dB 분배·결합기, 두 팔의 광경로가 Δn_eff = 0에서 같다고 가정했다. 실제 소자에서는 Δn_eff ≈ Γ·Δn(Γ: 모드 가둠 계수), 굴절률 변화에 수반되는 흡수 변화(특히 carrier 효과), 분배비 오차, 편광 의존성이 출력에 영향을 준다.
+            </Simplified>
+          </Panel>
+        </div>
+        <div className="col col-vals">
+          <Panel title="Calculated values">
+            <Vals rows={[
+              { k: 'Δn_eff', v: sci(s.dneff, 3) },
+              { k: 'OPD = LΔn_eff', v: fLen(opd), hl: true },
+              { k: 'Phase shift Δφ', v: `${fnum(dphi, 4)} rad`, hl: true },
+              { k: 'Δφ / π', v: `${fnum(q, 4)} π`, hl: true },
+              { k: 'N = OPD/λ', v: fnum(N, 4) },
+              { k: 'out1 I/I₀ = cos²(Δφ/2)', v: fix(Ibar, 4) },
+              { k: 'out2 I/I₀ = sin²(Δφ/2)', v: fix(Icross, 4) },
+              { k: 'π 위상에 필요한 Δn_eff', sub: 'λ/(2L)', v: sci(dnPi, 3) },
+            ]} />
+            <Calc lines={[
+              ['OPD', '= LΔn_eff'],
+              ['', `= (${fLen(L)})(${sci(s.dneff, 4)}) = ${fLen(opd)}`, true],
+              null,
+              ['Δφ', '= (2π/λ)·OPD = 2πLΔn_eff / λ'],
+              ['', `= 2π(${fLen(L)})(${sci(s.dneff, 4)}) / (${fLen(lam)})`],
+              ['', `= ${fnum(dphi, 4)} rad = ${fnum(q, 4)}π`, true],
+            ]} />
+          </Panel>
+          <Panel title={CAUSES[s.cause].title}>
+            <CauseText cause={s.cause} />
+          </Panel>
+        </div>
+      </div>
+      <div className="graphs">
+        <Plot title="Graph A · Δφ vs Δn_eff" f={x => phaseFromOPD(OPD.singlePassIndex(L, x), lam) / PI} x0={-1e-3} x1={1e-3} xScale={1e-4} samples={200}
+          xLabel="Δn_eff (×10⁻⁴)" yLabel="Δφ / π" cur={{ x: s.dneff, y: q }}
+          hlines={Math.abs(phaseFromOPD(OPD.singlePassIndex(L, 1e-3), lam) / PI) < 12 ? [-5, -3, -1, 1, 3, 5].map(v => ({ y: v, label: `${v}π` })) : []}
+          readout={`Δφ = ${fnum(q, 4)}π rad`} yFmt={v => `${fnum(v, 4)}π`} xFmt={v => `Δn=${sci(v, 3)}`}
+          note="점선: 홀수 π — 출력이 out1에서 out2로 완전히 바뀌는 지점" />
+        <Plot title="Graph B · 출력 세기 out1 vs Δn_eff" f={x => Math.cos(phaseFromOPD(OPD.singlePassIndex(L, x), lam) / 2) ** 2} x0={-1e-3} x1={1e-3} xScale={1e-4} samples={2400} yDomain={[0, 1.05]}
+          xLabel="Δn_eff (×10⁻⁴)" yLabel="I_out1 / I₀" cur={{ x: s.dneff, y: Ibar }}
+          readout={`I_out1/I₀ = ${fix(Ibar, 4)}`} yFmt={v => `I=${fix(v, 3)}`} xFmt={v => `Δn=${sci(v, 3)}`} />
+      </div>
+      <Interp>
+        <div>
+          <p>도파로 소자에서 빛은 모드의 유효굴절률 n_eff로 진행한다. 외부 조건(전류, 전압, 온도, 응력)이 n_eff를 바꾸면 소자 팔의 광경로가 LΔn_eff만큼 바뀐다. 빛은 이 팔을 한 번만 지나므로 factor 2가 없다(Michelson과 비교). 두 팔의 빛이 다시 합쳐질 때 위상차가 출력 세기를 정한다.</p>
+        </div>
+        <div>
+          <p>Δφ = π가 되면 두 phasor가 반대 방향을 향해 out1이 완전히 꺼지고 빛이 out2로 넘어간다. 이것이 광 스위치·변조기의 동작이다. 10⁻⁴ 수준의 아주 작은 굴절률 변화도 길이 L이 mm면 π 위상을 만들 수 있다. 필요한 Δn_eff = λ/(2L)이 L에 반비례하므로 소자 길이와 구동 세기 사이에 trade-off가 생긴다(V<sub>π</sub>L figure of merit).</p>
+        </div>
+      </Interp>
+    </>
+  );
+}
+function CauseText({ cause }) {
+  if (cause === 'carrier') return (<div className="viz-cap">
+    자유 전자·정공 농도가 바뀌면 plasma dispersion으로 굴절률과 흡수가 함께 변한다. Si, λ = 1.55 μm 경험식(Soref–Bennett):
+    <div className="calc" style={{ margin: '6px 0' }}><div className="calc-g"><span className="calc-l">Δn</span><span className="calc-r">= −[8.8×10⁻²² ΔNₑ + 8.5×10⁻¹⁸ (ΔNₕ)⁰·⁸]</span></div></div>
+    ΔN 단위는 cm⁻³, 캐리어 주입 시 Δn &lt; 0. 계수는 1.55 μm 근처에서만 유효하다. GHz급 고속 Si 변조기의 원리.
+  </div>);
+  if (cause === 'eo') return (<div className="viz-cap">
+    Pockels 효과: 전기장에 비례하는 굴절률 변화.
+    <div className="calc" style={{ margin: '6px 0' }}><div className="calc-g"><span className="calc-l">Δn</span><span className="calc-r">= −½ n³ r E,  E = V/g</span></div></div>
+    환산 예: LiNbO₃, nₑ ≈ 2.138, r₃₃ ≈ 30.8 pm/V, 전극 간격 g = 10 μm, 겹침 계수 1 가정. 무응력 Si는 중심대칭 결정이라 1차 Pockels 계수가 0이며, strain으로 대칭을 깨야 나타난다.
+  </div>);
+  if (cause === 'thermo') return (<div className="viz-cap">
+    온도에 따라 굴절률이 변한다.
+    <div className="calc" style={{ margin: '6px 0' }}><div className="calc-g"><span className="calc-l">Δn</span><span className="calc-r">= (dn/dT)·ΔT,  Si: dn/dT ≈ 1.8×10⁻⁴ K⁻¹</span></div></div>
+    SiO₂(~1×10⁻⁵ K⁻¹)보다 약 18배 크다. 마이크로 히터로 수 K만 올려도 π 위상을 얻는다(느리지만 손실이 적은 phase shifter). 열팽창에 의한 L 변화는 작아 무시했다.
+  </div>);
+  return (<div className="viz-cap">
+    광탄성 효과: 변형 ε가 유전 불투과율 텐서를 바꾼다.
+    <div className="calc" style={{ margin: '6px 0' }}><div className="calc-g"><span className="calc-l">Δ(1/n²)ᵢⱼ</span><span className="calc-r">= pᵢⱼₖₗ εₖₗ  →  Δn ≈ −½ n³ p ε</span></div></div>
+    Si(n ≈ 3.48)에서 ε ~ 10⁻³이면 |Δn| ~ 10⁻⁴–10⁻³. 방향마다 p가 달라 복굴절도 함께 생긴다(탭 2 참고). 공정 중 막 응력, 패키징 응력이 소자 위상 오차의 원인이 되는 이유이다.
+  </div>);
+}
+
+/* ================================================================
+   TAB 3 container
+   ================================================================ */
+function Tab3({ sub, setSub, st }) {
+  const SUBS3 = [
+    { v: 'A', l: 'Wafer surface / warpage' },
+    { v: 'B', l: 'Thin film' },
+    { v: 'C', l: 'MEMS displacement' },
+    { v: 'D', l: 'Refractive index modulation' },
+  ];
+  return (
+    <>
+      <div className="subtabs" role="tablist" aria-label="응용 사례">
+        {SUBS3.map(o => (
+          <button key={o.v} type="button" role="tab" aria-selected={sub === o.v} className="subtab" onClick={() => setSub(o.v)}>
+            <span className="no">{o.v}</span>{o.l}
+          </button>
+        ))}
+      </div>
+      {sub === 'A' && <WaferTab s={st.wafer[0]} set={st.wafer[1]} />}
+      {sub === 'B' && <FilmTab s={st.film[0]} set={st.film[1]} />}
+      {sub === 'C' && <MemsTab s={st.mems[0]} set={st.mems[1]} />}
+      {sub === 'D' && <ModTab s={st.mod[0]} set={st.mod[1]} />}
+    </>
+  );
+}
+
+/* ================================================================
+   TAB 4 — comparison / synthesis
+   ================================================================ */
+function Tab4({ st }) {
+  const [p, setP] = useState({ lambda_nm: 632.8, L_mm: 1, eps: 0.01 });
+  const up = k => v => setP(q => ({ ...q, [k]: v }));
+  const lam = p.lambda_nm * NM, L = p.L_mm * MM, dphiMin = TAU * p.eps;
+  const t1 = computeT1(st.t1[0]), t2 = computeT2(st.t2[0]), w = computeWafer(st.wafer[0]), f = computeFilm(st.film[0]);
+  const m = st.mems[0], md = st.mod[0];
+  const mOPD = OPD.reflection(m.dd_um * UM), mPh = phaseFromOPD(mOPD, m.lambda_nm * NM);
+  const dOPD = OPD.singlePassIndex(md.L_mm * MM, md.dneff), dPh = phaseFromOPD(dOPD, md.lambda_nm * NM);
+  const rows = [
+    { name: '굴절률 변화 (Michelson 시료 왕복)', q: 'Δn', opd: '2LΔn', ph: '4πLΔn/λ', x2: true,
+      one: sci(lam / (2 * L), 3), min: sci(lam * dphiMin / (4 * PI * L), 3), cur: `Δn=${sci(st.t1[0].dn, 2)} → ${fLen(t1.opd, 3)}, ${fnum(t1.dphi, 3)} rad` },
+    { name: '복굴절 (단일 통과)', q: 'Δn = nₓ − nᵧ', opd: 'LΔn', ph: '2πLΔn/λ', x2: false,
+      one: sci(lam / L, 3), min: sci(lam * dphiMin / (TAU * L), 3), cur: `Δn=${sci(t2.dn, 2)} → ${fLen(t2.opd, 3)}, ${fnum(t2.dphi, 3)} rad` },
+    { name: '표면 또는 거울 변위 (반사)', q: 'Δd, Δh', opd: '2Δd', ph: '4πΔd/λ', x2: true,
+      one: fLen(lam / 2, 3), min: fLen(lam * dphiMin / (4 * PI), 3), cur: `wafer Δh=${fLen(w.dh, 3)} → ${fnum(w.dphi, 3)} rad · MEMS Δd=${fLen(m.dd_um * UM, 3)} → ${fnum(mPh, 3)} rad` },
+    { name: '반도체 effective index 변화 (MZI 한 팔)', q: 'Δn_eff', opd: 'LΔn_eff', ph: '2πLΔn_eff/λ', x2: false,
+      one: sci(lam / L, 3), min: sci(lam * dphiMin / (TAU * L), 3), cur: `Δn_eff=${sci(md.dneff, 2)} → ${fLen(dOPD, 3)}, ${fnum(dPh / PI, 3)}π` },
+    { name: '박막 두께 (참고: 계면 위상 별도)', q: 'd (막 두께)', opd: '≈ 2n₁d', ph: '4πn₁d/λ', x2: true,
+      one: `Δd = ${fLen(lam / (2 * st.film[0].n1), 3)}`, min: fLen(lam * dphiMin / (4 * PI * st.film[0].n1), 3), cur: `d=${fLen(f.d, 3)} → ${fnum(f.dphi, 3)} rad, R=${fix(f.R * 100, 1)}%` },
+  ];
+  const flow = [
+    { t: 'Physical change', d: '굴절률, 결정 이방성, 표면 높이, 구조물 변위, 막 두께, 유효굴절률', ex: `예 (탭 1): Δn = ${sci(st.t1[0].dn, 3)}` },
+    { t: 'Optical Path Difference', d: '물리적 변화 × 통과 횟수 (반사·왕복이면 ×2)', ex: `OPD = 2LΔn = ${fLen(t1.opd)}` },
+    { t: 'Phase Difference', d: '모든 경우 같은 식: Δφ = (2π/λ)·OPD', ex: `Δφ = ${fnum(t1.dphi, 4)} rad = 2π × ${fnum(t1.N, 4)}` },
+    { t: 'Interference Intensity / Fringe Shift', d: 'I = I₁ + I₂ + 2√(I₁I₂) cos Δφ, fringe 수 N = Δφ/2π', ex: `I/I_max = ${fix(t1.In, 3)}, N = ${fnum(t1.N, 4)}` },
+    { t: 'Measured physical quantity', d: '관측한 N 또는 Δφ를 거꾸로 풀어 물리량을 얻는다', ex: `Δn = Nλ/(2L) = ${sci(t1.N * t1.lam / (2 * t1.L), 3)}` },
+  ];
+  return (
+    <>
+      <div className="tbl-wrap" style={{ marginTop: 14 }}>
+        <table className="sum">
+          <thead><tr>
+            <th>현상</th><th>변화하는 물리량</th><th>OPD</th><th>Phase Δφ</th><th>fringe 1개에 해당하는 변화</th><th>검출 한계 (δN = {fix(p.eps, 3)})</th><th>현재 각 탭 설정</th>
+          </tr></thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.name}>
+                <td>{r.name}</td>
+                <td>{r.q}</td>
+                <td className="f">{r.opd}{r.x2 && <span className="x2">×2 왕복</span>}</td>
+                <td className="f">{r.ph}</td>
+                <td className="n">{r.one}</td>
+                <td className="n">{r.min}</td>
+                <td className="n" style={{ whiteSpace: 'normal', minWidth: 220 }}>{r.cur}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="keyline">
+        모든 측정은 결국 Optical Path Difference를 Phase Difference로 변환하여 측정한다.
+        <small>Δφ = (2π/λ)·OPD, N = OPD/λ = Δφ/2π. 현상마다 다른 것은 OPD의 모양(왕복이면 factor 2, 매질 안이면 굴절률 곱)뿐이다.</small>
+      </div>
+      <div className="two">
+        <Panel title="Measurement chain">
+          <div className="flow">
+            {flow.map((f, i) => (
+              <React.Fragment key={f.t}>
+                {i > 0 && <div className="dn" aria-hidden="true">↓</div>}
+                <div className="st"><span className="k">{i + 1}</span><div><div className="t">{f.t}</div><div className="d">{f.d}</div><div className="ex">{f.ex}</div></div></div>
+              </React.Fragment>
+            ))}
+          </div>
+        </Panel>
+        <Panel title="감도 비교 계산기">
+          <div className="viz-cap">표의 “fringe 1개”와 “검출 한계” 열은 아래 값으로 계산된다. 검출 한계는 위상을 fringe의 δN 만큼 분해할 수 있을 때 잡히는 최소 변화량이다.</div>
+          <Slider id="s-lam" label="파장 λ" value={p.lambda_nm} onChange={up('lambda_nm')} min={400} max={1700} step={0.1} dec={1} unit="nm" />
+          <Slider id="s-L" label="시료 / 소자 길이 L" value={p.L_mm} onChange={up('L_mm')} min={0.1} max={10} step={0.01} dec={2} unit="mm" />
+          <Slider id="s-eps" label="위상 분해능 δN (fringe 분율)" value={p.eps} onChange={up('eps')} min={0.001} max={0.2} step={0.001} dec={3} unit="fringe"
+            note={`δφ = 2π·δN = ${fnum(dphiMin * 1e3, 3)} mrad`} />
+          <Vals rows={[
+            { k: '최소 검출 변위 (반사)', sub: 'λδφ/(4π)', v: fLen(lam * dphiMin / (4 * PI)), hl: true },
+            { k: '최소 검출 Δn (Michelson 왕복)', sub: 'λδφ/(4πL)', v: sci(lam * dphiMin / (4 * PI * L), 3), hl: true },
+            { k: '최소 검출 Δn (단일 통과)', sub: 'λδφ/(2πL)', v: sci(lam * dphiMin / (TAU * L), 3) },
+          ]} />
+        </Panel>
+      </div>
+      <Interp>
+        <div>
+          <p>Michelson 간섭계는 파장을 재는 장치로 처음 배우지만, 파장을 알고 있을 때는 거꾸로 λ를 <b>눈금자</b>로 삼아 아주 작은 광경로 변화를 재는 장치가 된다. fringe 하나가 λ/2의 변위(약 316 nm)에 해당하고, 위상을 fringe의 1/100–1/1000까지 읽으면 Å 이하의 변위와 10⁻⁷ 수준의 굴절률 변화를 측정할 수 있다.</p>
+        </div>
+        <div>
+          <p>현상마다 달라 보이는 식은 모두 Δφ = (2π/λ)·OPD의 특수한 경우이다. 반사면이나 왕복 경로에는 factor 2가 붙고, 매질 안 경로에는 굴절률이 곱해진다. 박막처럼 계면 반사가 섞이는 경우에만 Fresnel 계수에 의한 추가 위상과 세기 비를 고려하면 된다. 반도체 계측(평탄도, 막 두께, 응력, MEMS 진동)과 광소자(변조기, 스위치)는 모두 이 한 원리 위에 있다.</p>
+        </div>
+      </Interp>
+    </>
+  );
+}
+
+/* ================================================================
+   APP
+   ================================================================ */
+const TABS = [
+  { id: 't1', no: '1', l: '굴절률 변화에 따른 Michelson 간섭' },
+  { id: 't2', no: '2', l: '결정의 광학적 이방성과 복굴절' },
+  { id: 't3', no: '3', l: '반도체 공정 및 소자 응용' },
+  { id: 't4', no: '4', l: '전체 비교 / 종합' },
+];
+function App() {
+  const init = (() => { try { const v = localStorage.getItem('mpl-tab'); return TABS.some(t => t.id === v) ? v : 't1'; } catch (e) { return 't1'; } })();
+  const [tab, setTab] = useState(init);
+  const [sub, setSub] = useState('A');
+  const st = {
+    t1: useState(T1_DEFAULT), t2: useState(T2_DEFAULT),
+    wafer: useState(W_DEFAULT), film: useState(F_DEFAULT), mems: useState(M_DEFAULT), mod: useState(D_DEFAULT),
+  };
+  const go = id => { setTab(id); try { localStorage.setItem('mpl-tab', id); } catch (e) {} };
+  return (
+    <div className="app">
+      <header className="top">
+        <div>
+          <div className="kicker">기초광학실험 · Michelson interferometry extension</div>
+          <h1>Michelson 위상 계측 시뮬레이터</h1>
+        </div>
+        <div className="chain" aria-label="측정 원리">
+          <span className="node">물리적 변화</span><span className="arr">→</span>
+          <span className="node">OPD</span><span className="arr">→</span>
+          <span className="node">Δφ = (2π/λ)·OPD</span><span className="arr">→</span>
+          <span className="node">간섭무늬 변화</span>
+        </div>
+      </header>
+      <nav className="tabs" role="tablist" aria-label="시뮬레이션 탭">
+        {TABS.map(t => (
+          <button key={t.id} type="button" role="tab" className="tab" aria-selected={tab === t.id} onClick={() => go(t.id)}>
+            <span className="no">{t.no}</span>{t.l}
+          </button>
+        ))}
+      </nav>
+      {tab === 't1' && <Tab1 s={st.t1[0]} set={st.t1[1]} />}
+      {tab === 't2' && <Tab2 s={st.t2[0]} set={st.t2[1]} />}
+      {tab === 't3' && <Tab3 sub={sub} setSub={setSub} st={st} />}
+      {tab === 't4' && <Tab4 st={st} />}
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+
+</body>
+</html>
